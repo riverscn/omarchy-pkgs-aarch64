@@ -112,6 +112,14 @@ grep -Fq 'cp --remove-destination "$repo/omarchy.db.tar.zst.sig"' \
 grep -Fq 'repo-add omarchy-build.db.tar.zst "${built_filenames[@]}"' \
   "$ROOT/build/build.sh" ||
   fail "split-package outputs are not all indexed for dependent builds"
+grep -Fq -- "--pattern '*.pkg.tar.zst.sig'" \
+  "$ROOT/bin/download-aarch64-baseline" ||
+  fail "incremental build baseline does not download package signatures"
+grep -Fq -- "--pattern 'omarchy.db'" \
+  "$ROOT/bin/download-aarch64-baseline" &&
+  grep -Fq -- "--pattern 'omarchy.db.sig'" \
+    "$ROOT/bin/download-aarch64-baseline" ||
+  fail "incremental build baseline lacks pacman's signed database aliases"
 
 for package_name in pinta tensaku tzupdate; do
   find "$ROOT/pkgbuilds/$package_name/.omarchy/patches" -name '*.patch' -print -quit |

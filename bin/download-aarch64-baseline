@@ -29,16 +29,36 @@ gh release download "$release_tag" \
   --repo "$repository" \
   --dir "$staging" \
   --pattern '*.pkg.tar.zst' \
+  --pattern '*.pkg.tar.zst.sig' \
+  --pattern 'omarchy.db' \
+  --pattern 'omarchy.db.sig' \
   --pattern 'omarchy.db.tar.zst' \
+  --pattern 'omarchy.db.tar.zst.sig' \
   --pattern 'SHA256SUMS'
 
 [[ -f $staging/SHA256SUMS ]] || { echo "ERROR: baseline lacks SHA256SUMS" >&2; exit 1; }
 [[ -f $staging/omarchy.db.tar.zst ]] || { echo "ERROR: baseline lacks repository database" >&2; exit 1; }
+[[ -f $staging/omarchy.db.tar.zst.sig ]] || { echo "ERROR: baseline lacks repository database signature" >&2; exit 1; }
+[[ -f $staging/omarchy.db ]] || { echo "ERROR: baseline lacks pacman database alias" >&2; exit 1; }
+[[ -f $staging/omarchy.db.sig ]] || { echo "ERROR: baseline lacks pacman database alias signature" >&2; exit 1; }
 packages=("$staging"/*.pkg.tar.zst)
 [[ -f ${packages[0]} ]] || { echo "ERROR: baseline contains no packages" >&2; exit 1; }
+for package in "${packages[@]}"; do
+  [[ -f $package.sig ]] || {
+    echo "ERROR: baseline package lacks signature: ${package##*/}" >&2
+    exit 1
+  }
+done
 
 (cd "$staging" && sha256sum --check --ignore-missing SHA256SUMS)
 
 mkdir -p "$destination"
-cp -- "$staging"/*.pkg.tar.zst "$staging/omarchy.db.tar.zst" "$destination/"
+cp -- \
+  "$staging"/*.pkg.tar.zst \
+  "$staging"/*.pkg.tar.zst.sig \
+  "$staging/omarchy.db" \
+  "$staging/omarchy.db.sig" \
+  "$staging/omarchy.db.tar.zst" \
+  "$staging/omarchy.db.tar.zst.sig" \
+  "$destination/"
 echo "Seeded ${#packages[@]} packages from Release $release_tag."
