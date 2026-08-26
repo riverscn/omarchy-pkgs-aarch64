@@ -36,6 +36,9 @@ for package_name in "${packages[@]}"; do
     fail "missing PKGBUILD for $package_name"
   [[ -f "$package_dir/.omarchy/package.json" ]] ||
     fail "missing metadata for $package_name"
+  unreadable_file=$(find "$package_dir" -type f ! -perm -004 -print -quit)
+  [[ -z $unreadable_file ]] ||
+    fail "builder cannot read package source: ${unreadable_file#$ROOT/}"
   jq -e . "$package_dir/.omarchy/package.json" >/dev/null ||
     fail "invalid metadata for $package_name"
 
@@ -106,6 +109,27 @@ grep -Fq "repository_siglevel='Required TrustAll'" "$ROOT/build/build.sh" ||
 grep -Fq 'cp --remove-destination "$repo/omarchy.db.tar.zst.sig"' \
   "$ROOT/bin/prepare-github-release" ||
   fail "repository preparation cannot replace repo-add database signature links"
+grep -Fq 'repo-add omarchy-build.db.tar.zst "${built_filenames[@]}"' \
+  "$ROOT/build/build.sh" ||
+  fail "split-package outputs are not all indexed for dependent builds"
+
+for package_name in pinta tensaku tzupdate; do
+  find "$ROOT/pkgbuilds/$package_name/.omarchy/patches" -name '*.patch' -print -quit |
+    grep -q . || fail "$package_name has no reproducible AArch64 overlay"
+done
+
+jq -e '
+  .source == "aur" and .aur == "dotnet-core-bin"
+' "$ROOT/pkgbuilds/dotnet-runtime-bin/.omarchy/package.json" >/dev/null ||
+  fail ".NET does not follow the AUR ARM64 binary package base"
+grep -Fq "source_aarch64=(" "$ROOT/pkgbuilds/dotnet-runtime-bin/PKGBUILD" ||
+  fail ".NET has no ARM64 vendor source"
+grep -Fq "runtime_arch=arm64" "$ROOT/pkgbuilds/pinta/PKGBUILD" ||
+  fail "Pinta does not build for the linux-arm64 runtime"
+grep -Fq "'dotnet-runtime-bin'" "$ROOT/pkgbuilds/pinta/PKGBUILD" ||
+  fail "Pinta does not consume the maintained binary .NET runtime"
+grep -Fq 'obsidian-${pkgver}-arm64.tar.gz' "$ROOT/pkgbuilds/obsidian/PKGBUILD" ||
+  fail "Obsidian does not consume its official ARM64 desktop tarball"
 
 cmp -s \
   "$ROOT/pkgbuilds/limine-mkinitcpio-hook/limine-entry-tool-aarch64.patch" \
@@ -164,6 +188,7 @@ bash -n \
   "$ROOT/build/validate-repository.sh" \
   "$ROOT/helpers/aarch64-stable.sh" \
   "$ROOT/pkgbuilds/limine-mkinitcpio-hook/.omarchy/post-sync.sh" \
+  "$ROOT/pkgbuilds/obsidian/.omarchy/upstream.sh" \
   "$ROOT/pkgbuilds/omarchy-spice-guest-tools/omarchy-spice-guest-tools.install"
 
 echo "PASS: AArch64 package scope and downstream recipes are internally consistent"

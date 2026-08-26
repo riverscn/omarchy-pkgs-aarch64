@@ -165,6 +165,7 @@ set_upstream_commit() {
 
   tmpfile=$(mktemp)
   jq --arg commit "$commit" '.upstream_commit = $commit' "$metadata" > "$tmpfile"
+  chmod --reference="$metadata" "$tmpfile"
   mv "$tmpfile" "$metadata"
 }
 
@@ -255,6 +256,7 @@ apply_pkgrel_override() {
     print_info "Removing stale pkgrel metadata for $(display_package_name "$package_dir") (pkgver changed: $previous_pkgver -> $current_pkgver)"
     tmpfile=$(mktemp)
     jq 'del(.pkgrel)' "$metadata" > "$tmpfile"
+    chmod --reference="$metadata" "$tmpfile"
     mv "$tmpfile" "$metadata"
     return 1
   fi

@@ -150,9 +150,11 @@ if [[ "$SOURCE" == "aur" ]]; then
     # Temporarily sync once, then restore sync=false so future automated syncs skip it.
     tmpfile=$(mktemp)
     jq 'del(.sync)' "$METADATA_FILE" > "$tmpfile"
+    chmod --reference="$METADATA_FILE" "$tmpfile"
     mv "$tmpfile" "$METADATA_FILE"
     "$BUILD_ROOT/bin/sync-aur" "$PACKAGE"
     jq '. + {sync: false}' "$METADATA_FILE" > "$tmpfile"
+    chmod --reference="$METADATA_FILE" "$tmpfile"
     mv "$tmpfile" "$METADATA_FILE"
     print_info "AUR sync disabled for future runs"
   else

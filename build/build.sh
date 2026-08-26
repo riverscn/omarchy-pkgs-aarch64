@@ -308,15 +308,17 @@ build_package() {
   if PACMAN=/usr/local/bin/pacman-for-makepkg makepkg $MAKEPKG_FLAGS; then
     # Ensure output directory exists
     mkdir -p "$BUILD_OUTPUT_DIR"
-    
+
     local copied_package=false
+    local -a built_filenames=()
     for pkg_file in *.pkg.tar.*; do
-      if [[ -f "$pkg_file" ]]; then
+      if [[ -f "$pkg_file" && "$pkg_file" != *.sig ]]; then
         if ! cp "$pkg_file" "$BUILD_OUTPUT_DIR/"; then
           echo "    Failed to copy $pkg_file to $BUILD_OUTPUT_DIR"
           FAILED_PACKAGES="$FAILED_PACKAGES $pkg"
           return 1
         fi
+        built_filenames+=("${pkg_file##*/}")
         copied_package=true
       fi
     done
@@ -329,11 +331,12 @@ build_package() {
 
     cd "$BUILD_OUTPUT_DIR"
 
-    # Find ALL package files (handles split packages)
-    local new_pkgs=($(ls -t ${pkg}-*.pkg.tar.* 2>/dev/null | grep -v '\.sig$' | grep -v 'omarchy-build\.db'))
-
-    if [[ ${#new_pkgs[@]} -gt 0 ]]; then
-      repo-add omarchy-build.db.tar.zst "${new_pkgs[@]}" >/dev/null 2>&1
+    # Index every archive produced by makepkg. A source directory may be named
+    # after one installable split package while the PKGBUILD emits several
+    # sibling packages with unrelated prefixes (dotnet-core-bin is one such
+    # package base), so reconstructing this list from $pkg loses dependencies.
+    if [[ ${#built_filenames[@]} -gt 0 ]]; then
+      repo-add omarchy-build.db.tar.zst "${built_filenames[@]}" >/dev/null 2>&1
       ln -sf omarchy-build.db.tar.zst omarchy-build.db
       sudo pacman -Sy >/dev/null 2>&1
     fi

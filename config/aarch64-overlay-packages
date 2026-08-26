@@ -1,3 +1,6 @@
 # Packages that follow the official stable version but carry an AArch64 patch
 # on top of the corresponding upstream recipe.
 limine-mkinitcpio-hook
+pinta
+tensaku
+tzupdate

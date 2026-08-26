@@ -61,6 +61,34 @@ export_recipe() {
   cp -a "$stage/pkgbuilds/$package" "$target"
 }
 
+apply_overlay_customizations() {
+  local package="$1"
+  local target="$2"
+  local patch_file
+  local customized=false
+
+  shopt -s nullglob
+  local patch_files=("$target/.omarchy/patches/"*.patch)
+  shopt -u nullglob
+
+  for patch_file in "${patch_files[@]}"; do
+    echo "Applying $package overlay: ${patch_file##*/}"
+    patch --batch --forward --no-backup-if-mismatch -p1 -d "$target" < "$patch_file"
+    customized=true
+  done
+
+  if [[ -f $target/.omarchy/post-sync.sh ]]; then
+    echo "Running $package overlay post-sync hook"
+    (cd "$target" && PACKAGE_NAME="$package" bash .omarchy/post-sync.sh)
+    customized=true
+  fi
+
+  [[ $customized == true ]] || {
+    echo "ERROR: overlay package $package has no patches or post-sync hook" >&2
+    return 1
+  }
+}
+
 sync_exact_recipe() {
   local package="$1"
   local wanted=${OFFICIAL_STABLE_VERSION[$package]:-}
@@ -91,7 +119,7 @@ sync_overlay_recipe() {
     return 0
   fi
 
-  local commit overlay_backup target official_pkgrel
+  local commit overlay_backup target official_pkgrel overlay_suffix
   commit=$(find_stable_recipe_commit "$package" "$wanted") || {
     echo "ERROR: no upstream recipe for stable overlay $package $wanted" >&2
     return 1
@@ -104,11 +132,15 @@ sync_overlay_recipe() {
   export_recipe "$package" "$commit"
   rm -rf "$target/.omarchy"
   cp -a "$overlay_backup" "$target/.omarchy"
-  patch --batch --forward -p1 -d "$target" < "$target/.omarchy/patches/aarch64-uefi.patch"
-  (cd "$target" && ./.omarchy/post-sync.sh)
+  apply_overlay_customizations "$package" "$target"
 
   official_pkgrel=$(stable_version_pkgrel "$wanted")
-  sed -i "s/^pkgrel=.*/pkgrel=${official_pkgrel}.1/" "$target/PKGBUILD"
+  overlay_suffix=$(jq -r '.pkgrel.suffix // 1' "$target/.omarchy/package.json")
+  [[ $overlay_suffix =~ ^[1-9][0-9]*$ ]] || {
+    echo "ERROR: invalid overlay pkgrel suffix for $package: $overlay_suffix" >&2
+    return 1
+  }
+  sed -i "s/^pkgrel=.*/pkgrel=${official_pkgrel}.${overlay_suffix}/" "$target/PKGBUILD"
 }
 
 sync_omarchy_pair() {

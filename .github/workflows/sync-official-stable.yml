@@ -21,7 +21,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Synchronize recipes admitted to official stable
+      - name: Synchronize AArch64 recipes
         run: |
           docker run --rm \
             -e HOST_UID="$(id -u)" \
@@ -34,6 +34,8 @@ jobs:
               groupadd -g "$HOST_GID" runner
               useradd -m -u "$HOST_UID" -g "$HOST_GID" runner
               chown -R runner:runner /workspace
+              runuser -u runner -- ./bin/sync-aur dotnet-runtime-bin
+              runuser -u runner -- ./bin/sync-upstream obsidian
               runuser -u runner -- ./bin/sync-official-stable
               runuser -u runner -- ./test/aarch64-downstream-test.sh
             '
@@ -49,7 +51,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add pkgbuilds
-          git commit -m 'chore: follow official stable package versions'
+          git commit -m 'chore: update AArch64 package versions'
           git push origin HEAD:master
           echo "changed=true" >> "$GITHUB_OUTPUT"
 

@@ -23,6 +23,13 @@ The small downstream delta is explicit:
 - `omarchy` and `omarchy-settings` are built in lockstep from versioned releases
   in [`riverscn/omarchy-aarch64`](https://github.com/riverscn/omarchy-aarch64).
 
+Architecture-related omissions are kept narrow. Obsidian uses its vendor's
+official Linux ARM64 archive; `dotnet-runtime-bin` follows Microsoft's ARM64
+runtime through the AUR `dotnet-core-bin` recipe. Pinta, Tensaku, and tzupdate
+stay on the versions admitted to the official stable Omarchy repository and
+carry only their required AArch64 packaging adaptations. Pinta's .NET SDK is a
+build dependency; the installed package and VM image contain only the runtime.
+
 The latest Release is directly consumable as a pacman repository. Bootstrap its
 public key once, then install the keyring package so future key updates are
 managed by pacman:
