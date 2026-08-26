@@ -68,12 +68,34 @@ repo-add "$DB_FILE" "${latest_pkgs[@]}" || {
   exit 1
 }
 
+# An AArch64 stable GitHub Release is an immutable snapshot rather than an
+# archival mirror. Remove superseded archives after repo-add has selected the
+# newest version of each split package, so every uploaded package is reachable
+# from the database. Preserve the inherited archival behavior elsewhere.
+if [[ $ARCH == aarch64 && $MIRROR == stable ]]; then
+  for pkg in *.pkg.tar.*; do
+    [[ "$pkg" == *.sig ]] && continue
+    [[ ! -f "$pkg" ]] && continue
+    keep=false
+    for latest in "${latest_pkgs[@]}"; do
+      if [[ "$pkg" == "$latest" ]]; then
+        keep=true
+        break
+      fi
+    done
+    if [[ $keep == false ]]; then
+      echo "  Removing superseded archive: $pkg"
+      rm -f -- "$pkg" "$pkg.sig"
+    fi
+  done
+fi
+
 # Create symlinks for compatibility
 ln -sf "${REPO_NAME}.db.tar.zst" "${REPO_NAME}.db"
 ln -sf "${REPO_NAME}.files.tar.zst" "${REPO_NAME}.files"
 
 # Count packages
-PACKAGE_COUNT=$(ls -1 *.pkg.tar.* 2>/dev/null | grep -v '\.sig$' | wc -l)
+PACKAGE_COUNT=${#latest_pkgs[@]}
 
 echo "==> Database updated successfully!"
 echo "==> Total packages in repository: $PACKAGE_COUNT"

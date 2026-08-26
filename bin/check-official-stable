@@ -1,0 +1,132 @@
+#!/bin/bash
+
+set -euo pipefail
+
+BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
+source "$BUILD_ROOT/helpers/aarch64-stable.sh"
+
+SCOPE="$BUILD_ROOT/config/aarch64-packages"
+LOCAL_PACKAGES="$BUILD_ROOT/config/aarch64-local-packages"
+OVERLAY_PACKAGES="$BUILD_ROOT/config/aarch64-overlay-packages"
+JSON=false
+
+if [[ ${1:-} == "--json" ]]; then
+  JSON=true
+  shift
+fi
+if [[ $# -gt 0 ]]; then
+  echo "Usage: $0 [--json]" >&2
+  exit 1
+fi
+
+temp_dir=$(mktemp -d)
+trap 'rm -rf "$temp_dir"' EXIT
+stable_load_official_db "$temp_dir/omarchy.db.tar.zst"
+
+records='[]'
+failures=0
+
+while IFS= read -r package; do
+  package_dir="$BUILD_ROOT/pkgbuilds/$package"
+  if [[ ! -f $package_dir/PKGBUILD ]]; then
+    echo "ERROR: scoped package has no PKGBUILD: $package" >&2
+    ((failures += 1))
+    continue
+  fi
+
+  if ! local_version=$(stable_local_version "$package_dir"); then
+    echo "ERROR: cannot read local version for $package" >&2
+    ((failures += 1))
+    continue
+  fi
+  official_version=${OFFICIAL_STABLE_VERSION[$package]:-}
+  policy=exact
+
+  if stable_list_contains "$LOCAL_PACKAGES" "$package"; then
+    policy=local
+  elif stable_list_contains "$OVERLAY_PACKAGES" "$package"; then
+    policy=overlay
+  fi
+
+  case "$package" in
+    omarchy | omarchy-settings)
+      policy=adapted
+      if [[ -z $official_version ]]; then
+        echo "ERROR: $package is missing from the official stable repository" >&2
+        ((failures += 1))
+      elif [[ $(stable_version_pkgver "$local_version") != "$(stable_version_pkgver "$official_version")".* ]]; then
+        echo "ERROR: $package $local_version is not adapted from official stable $official_version" >&2
+        ((failures += 1))
+      elif (( $(vercmp "$local_version" "$official_version") <= 0 )); then
+        echo "ERROR: adapted $package $local_version must sort after official $official_version" >&2
+        ((failures += 1))
+      fi
+      ;;
+    *)
+      case "$policy" in
+        local)
+          ;;
+        overlay)
+          if [[ -z $official_version ]]; then
+            echo "ERROR: overlay package $package is missing from official stable" >&2
+            ((failures += 1))
+          elif [[ $(stable_version_pkgver "$local_version") != "$(stable_version_pkgver "$official_version")" ]]; then
+            echo "ERROR: overlay package $package uses $local_version over official $official_version" >&2
+            ((failures += 1))
+          elif (( $(vercmp "$local_version" "$official_version") <= 0 )); then
+            echo "ERROR: overlay package $package $local_version must sort after official $official_version" >&2
+            ((failures += 1))
+          fi
+          ;;
+        exact)
+          if [[ -z $official_version ]]; then
+            echo "ERROR: $package is missing from the official stable repository" >&2
+            ((failures += 1))
+          elif [[ $local_version != "$official_version" ]]; then
+            echo "ERROR: $package local $local_version differs from official stable $official_version" >&2
+            ((failures += 1))
+          fi
+          ;;
+      esac
+      ;;
+  esac
+
+  records=$(jq -c \
+    --arg name "$package" \
+    --arg local_version "$local_version" \
+    --arg official_version "$official_version" \
+    --arg policy "$policy" \
+    '. + [{name: $name, version: $local_version, official_version: (if $official_version == "" then null else $official_version end), policy: $policy}]' \
+    <<<"$records")
+done < <(stable_read_list "$SCOPE")
+
+((failures == 0)) || exit 1
+
+input_digest=$(
+  {
+    find "$BUILD_ROOT/build" "$BUILD_ROOT/helpers" -type f -print0
+    printf '%s\0' \
+      "$BUILD_ROOT/bin/build" \
+      "$BUILD_ROOT/bin/check-official-stable" \
+      "$BUILD_ROOT/bin/release-aarch64" \
+      "$SCOPE" "$LOCAL_PACKAGES" "$OVERLAY_PACKAGES"
+    while IFS= read -r package; do
+      find "$BUILD_ROOT/pkgbuilds/$package" -type f -print0
+    done < <(stable_read_list "$SCOPE")
+  } | sort -z | xargs -0 sha256sum | sha256sum | awk '{ print $1 }'
+)
+
+state=$(jq -S -n \
+  --arg architecture aarch64 \
+  --arg channel stable \
+  --arg input_digest "$input_digest" \
+  --arg official_database "$OFFICIAL_STABLE_DB_URL" \
+  --argjson packages "$records" \
+  '{schema: 1, architecture: $architecture, channel: $channel, input_sha256: $input_digest, official_database: $official_database, packages: $packages}')
+
+if [[ $JSON == true ]]; then
+  printf '%s\n' "$state"
+else
+  jq -r '.packages[] | "\(.name): \(.version) [\(.policy)]"' <<<"$state"
+  echo "PASS: every AArch64 package follows the official stable policy"
+fi

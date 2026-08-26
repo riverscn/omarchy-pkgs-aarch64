@@ -41,8 +41,12 @@ while [[ $# -gt 0 ]]; do
     shift 2
     ;;
   --package)
-    BUILD_ARGS+=("--package" "$2")
-    shift 2
+    BUILD_ARGS+=("--package")
+    shift
+    while [[ $# -gt 0 && ! "$1" =~ ^-- ]]; do
+      BUILD_ARGS+=("$1")
+      shift
+    done
     ;;
   --sync-remote)
     SYNC_REMOTE="$2"

@@ -1,0 +1,128 @@
+#!/bin/bash
+
+set -euo pipefail
+
+BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
+SOURCE_URL="${OMARCHY_AARCH64_SOURCE_URL:-https://github.com/riverscn/omarchy-aarch64.git}"
+SOURCE_DIR=""
+TAG=""
+
+show_usage() {
+  cat <<EOF
+Usage: $0 <vX.Y.Z-aarch64.N> [--source <checkout>]
+
+Update the omarchy and omarchy-settings PKGBUILDs together from a reviewed
+omarchy-aarch64 release. The command writes the recipes but never commits or
+pushes them.
+
+Options:
+  --source <checkout>  Resolve the tag from a local checkout instead of the
+                       published repository (useful before pushing a release)
+  -h, --help           Show this help
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+  --source)
+    SOURCE_DIR=$(realpath "$2")
+    shift 2
+    ;;
+  -h | --help)
+    show_usage
+    exit 0
+    ;;
+  -*)
+    echo "ERROR: Unknown option: $1" >&2
+    exit 1
+    ;;
+  *)
+    if [[ -n $TAG ]]; then
+      echo "ERROR: Unexpected argument: $1" >&2
+      exit 1
+    fi
+    TAG="$1"
+    shift
+    ;;
+  esac
+done
+
+if [[ ! $TAG =~ ^v([0-9]+\.[0-9]+\.[0-9]+)-aarch64\.([0-9]+)$ ]]; then
+  echo "ERROR: Expected an adapted tag such as v4.0.1-aarch64.1" >&2
+  exit 1
+fi
+base_version=${BASH_REMATCH[1]}
+
+if [[ -n $SOURCE_DIR ]]; then
+  source_git=$SOURCE_DIR
+else
+  source_git="$BUILD_ROOT/.srcdest/omarchy-aarch64"
+  if [[ -d $source_git ]]; then
+    git -C "$source_git" fetch --quiet --prune origin
+  else
+    mkdir -p "${source_git%/*}"
+    git clone --mirror --quiet "$SOURCE_URL" "$source_git"
+  fi
+fi
+
+commit=$(git -C "$source_git" rev-parse --verify "$TAG^{commit}")
+commit_count=$(git -C "$source_git" rev-list --count "$commit")
+short_commit=$(git -C "$source_git" rev-parse --short=12 "$commit")
+package_version="${base_version}.r${commit_count}.g${short_commit}"
+source_checksum=$(git -C "$source_git" archive "$commit" | sha256sum | awk '{print $1}')
+
+packages=(omarchy omarchy-settings)
+current_version=""
+current_commit=""
+
+for package_name in "${packages[@]}"; do
+  recipe="$BUILD_ROOT/pkgbuilds/$package_name/PKGBUILD"
+  recipe_version=$(bash -c 'source "$1" >/dev/null 2>&1; printf "%s" "$pkgver"' _ "$recipe")
+  recipe_commit=$(bash -c 'source "$1" >/dev/null 2>&1; printf "%s" "$_commit"' _ "$recipe")
+  if [[ -z $current_version ]]; then
+    current_version=$recipe_version
+    current_commit=$recipe_commit
+  elif [[ $recipe_version != "$current_version" || $recipe_commit != "$current_commit" ]]; then
+    echo "ERROR: omarchy and omarchy-settings are not pinned in lockstep" >&2
+    exit 1
+  fi
+done
+
+if [[ $commit == "$current_commit" ]]; then
+  echo "Already synchronized: $TAG at ${commit:0:12} ($current_version)"
+  exit 0
+fi
+
+if ! command -v vercmp >/dev/null 2>&1; then
+  echo "ERROR: vercmp is required to guard package version ordering" >&2
+  exit 1
+fi
+
+if [[ $(vercmp "$package_version" "$current_version") -le 0 ]]; then
+  echo "ERROR: $package_version does not sort after current $current_version" >&2
+  exit 1
+fi
+
+for package_name in "${packages[@]}"; do
+  recipe="$BUILD_ROOT/pkgbuilds/$package_name/PKGBUILD"
+  sed -i \
+    -e "s|^_tag=.*|_tag='$TAG'|" \
+    -e "s|^_commit=.*|_commit='$commit'|" \
+    -e "s|^pkgver=.*|pkgver=$package_version|" \
+    -e 's|^pkgrel=.*|pkgrel=1|' \
+    -e "s|^  sha256sums=('[a-f0-9]\{64\}')|  sha256sums=('$source_checksum')|" \
+    "$recipe"
+done
+
+echo "Synchronized Omarchy AArch64 package recipes:"
+echo "  tag:      $TAG"
+echo "  commit:   $commit"
+echo "  pkgver:   $package_version-1"
+echo "  checksum: $source_checksum"
+if [[ -n $SOURCE_DIR ]]; then
+  echo "  warning:  ensure $commit is pushed to $SOURCE_URL before building remotely"
+fi
+echo
+git -C "$BUILD_ROOT" diff -- \
+  pkgbuilds/omarchy/PKGBUILD \
+  pkgbuilds/omarchy-settings/PKGBUILD

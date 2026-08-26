@@ -1,0 +1,22 @@
+#!/bin/bash
+
+set -euo pipefail
+
+BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
+PACKAGE_SCOPE="$BUILD_ROOT/config/aarch64-packages"
+
+mapfile -t packages < <(sed -E '/^[[:space:]]*(#|$)/d' "$PACKAGE_SCOPE")
+
+if [[ ${#packages[@]} -eq 0 ]]; then
+  echo "ERROR: AArch64 package scope is empty: $PACKAGE_SCOPE" >&2
+  exit 1
+fi
+
+# The downstream channel follows versions already admitted to the official
+# stable repository. This local helper only builds that complete set; signing,
+# validation, and publication are owned by the GitHub Actions release workflow.
+exec "$BUILD_ROOT/bin/repo" build \
+  --arch aarch64 \
+  --mirror stable \
+  "$@" \
+  --package "${packages[@]}"

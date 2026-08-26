@@ -1,4 +1,72 @@
-# Omarchy Package Repository
+# Omarchy AArch64 Package Repository
+
+This fork publishes the signed stable package channel used by generic AArch64
+virtual-machine images from
+[`riverscn/omarchy-aarch64-image`](https://github.com/riverscn/omarchy-aarch64-image).
+It tracks `omacom-io/omarchy-pkgs` as its upstream build system, but only builds
+the explicitly maintained scope in [`config/aarch64-packages`](config/aarch64-packages).
+
+The channel follows package versions already admitted to
+`https://pkgs.omarchy.org/stable/x86_64`. Event-driven automation synchronizes
+generic recipes, downloads the latest verified Release as its build baseline,
+and compiles only changed packages natively on GitHub's Ubuntu 24.04 ARM runner.
+It then signs the complete package set and repository database, validates a
+fresh pacman transaction, and publishes an immutable GitHub Release snapshot.
+If the official version set has not changed, no new snapshot is produced.
+
+The small downstream delta is explicit:
+
+- `config/aarch64-local-packages` lists AArch64- or VM-owned packages.
+- `config/aarch64-overlay-packages` lists official stable recipes carrying an
+  AArch64 patch.
+- all other scoped recipes must exactly match the official stable version.
+- `omarchy` and `omarchy-settings` are built in lockstep from versioned releases
+  in [`riverscn/omarchy-aarch64`](https://github.com/riverscn/omarchy-aarch64).
+
+The latest Release is directly consumable as a pacman repository. Bootstrap its
+public key once, then install the keyring package so future key updates are
+managed by pacman:
+
+```bash
+curl -fLO https://github.com/riverscn/omarchy-pkgs-aarch64/releases/latest/download/omarchy-aarch64.gpg
+sudo pacman-key --add omarchy-aarch64.gpg
+sudo pacman-key --lsign-key 2A388EDA14046A9218EA5B39D34CA866CE325F2D
+
+sudo tee -a /etc/pacman.conf >/dev/null <<'EOF'
+
+[omarchy]
+SigLevel = Required
+Server = https://github.com/riverscn/omarchy-pkgs-aarch64/releases/latest/download
+EOF
+
+sudo pacman -Syy omarchy-aarch64-keyring
+```
+
+Useful maintainer commands:
+
+```bash
+# Update the Omarchy package pair from a reviewed local source tag. This only
+# edits the two recipes; it never commits or pushes.
+./bin/sync-omarchy-aarch64 v4.0.1-aarch64.1 \
+  --source ../omarchy-aarch64
+
+# Confirm every recipe follows the currently published official stable set.
+./bin/check-official-stable
+
+# Synchronize recipes without committing or pushing.
+./bin/sync-official-stable
+
+# Inspect the complete stable AArch64 build plan without starting Docker.
+OMARCHY_SRC=../omarchy-aarch64 ./bin/release-aarch64 --dry-run
+```
+
+`origin` should point to this fork and `upstream` to
+`https://github.com/omacom-io/omarchy-pkgs.git`. Keep downstream commits small
+and rebase them onto reviewed upstream `master` updates. The remainder of this
+document describes the inherited upstream build system; the GitHub Release
+workflow above is authoritative for the downstream AArch64 channel.
+
+## Upstream build system
 
 Build system for the Omarchy Package Repository. Builds PKGBUILDs from local sources and AUR, signs them, and syncs to production.
 

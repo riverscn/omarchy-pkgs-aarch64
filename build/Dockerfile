@@ -103,15 +103,19 @@ RUN ln -sf /usr/lib/os-release /etc/os-release && \
         pacman-key --populate archlinux; \
     fi
 
-# Setup Omarchy keyring manually before adding repo (avoids keyserver trust issues)
-# Note: Repository is removed at the end since build scripts add it dynamically
-RUN pacman-key --recv-keys 40DFB630FF42BCFFB047046CF0134EE680CAC571 --keyserver keys.openpgp.org && \
-    pacman-key --lsign-key 40DFB630FF42BCFFB047046CF0134EE680CAC571 && \
-    printf '\n[omarchy]\nSigLevel = Optional\nServer = https://pkgs.omarchy.org/$arch\n' >> /etc/pacman.conf && \
-    pacman -Sy --noconfirm && \
-    pacman -S --noconfirm omarchy-keyring && \
-    pacman-key --populate omarchy && \
-    sed -i '/^\[omarchy\]/,/^$/d' /etc/pacman.conf
+# The production Omarchy repository currently publishes x86_64 only. Keep its
+# keyring bootstrap for x86_64 builds, but do not make AArch64 builds depend on
+# a repository database that does not exist. The downstream AArch64 repository
+# is added only after its own signing key has been provisioned.
+RUN if [ "${TARGETARCH}" = "amd64" ]; then \
+        pacman-key --recv-keys 40DFB630FF42BCFFB047046CF0134EE680CAC571 --keyserver keys.openpgp.org && \
+        pacman-key --lsign-key 40DFB630FF42BCFFB047046CF0134EE680CAC571 && \
+        printf '\n[omarchy]\nSigLevel = Optional\nServer = https://pkgs.omarchy.org/$arch\n' >> /etc/pacman.conf && \
+        pacman -Sy --noconfirm && \
+        pacman -S --noconfirm omarchy-keyring && \
+        pacman-key --populate omarchy && \
+        sed -i '/^\[omarchy\]/,/^$/d' /etc/pacman.conf; \
+    fi
 
 RUN pacman -Syu --noconfirm && \
     pacman -S --noconfirm \
@@ -133,7 +137,8 @@ RUN useradd -m -G wheel -s /bin/bash builder && \
     chown -R builder:builder /home/builder
 
 RUN sed -i 's/^#MAKEFLAGS=.*/MAKEFLAGS="-j$(nproc)"/' /etc/makepkg.conf && \
-    sed -i 's/^COMPRESSZST=.*/COMPRESSZST=(zstd -c -z -q --threads=0 -)/' /etc/makepkg.conf
+    sed -i 's/^COMPRESSZST=.*/COMPRESSZST=(zstd -c -z -q --threads=0 -)/' /etc/makepkg.conf && \
+    sed -i "s|^PKGEXT=.*|PKGEXT='.pkg.tar.zst'|" /etc/makepkg.conf
 
 # Pacman wrapper that auto-resolves package conflicts (e.g. rustup vs rust).
 # makepkg only passes --noconfirm to pacman, which defaults to 'N' on conflict

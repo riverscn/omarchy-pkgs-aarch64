@@ -1,0 +1,128 @@
+diff --git a/install/arch-linux/limine-entry-tool/usr/bin/limine-install b/install/arch-linux/limine-entry-tool/usr/bin/limine-install
+index f9491f8..7a4877a 100755
+--- a/install/arch-linux/limine-entry-tool/usr/bin/limine-install
++++ b/install/arch-linux/limine-entry-tool/usr/bin/limine-install
+@@ -68,8 +68,8 @@ else
+ 	}
+ fi
+ 
+-is_x64 || {
+-	info_msg "The system is not x86_64."
++is_supported_uefi_arch || {
++	info_msg "The system architecture does not have a supported Limine UEFI binary."
+ 	exit 0
+ }
+ 
+@@ -372,17 +372,17 @@ check_limine_config_conflicts
+ 
+ # Optionally add some bootloaders if they are present on the same ESP
+ if [[ "${FIND_BOOTLOADERS:-no}" == "yes" && "${SKIP_UEFI:-no}" == "no" ]]; then
+-	bootloader_path="${ESP_PATH}/EFI/systemd/systemd-bootx64.efi"
++	bootloader_path="${ESP_PATH}/EFI/systemd/${UEFI_SYSTEMD_BOOT_FILE}"
+ 	if [[ -f "${bootloader_path}" ]]; then
+ 		limine-entry-tool --add-efi "Systemd-boot" "${bootloader_path}" --comment "Systemd bootloader" --priority 20 --quiet --no-mutex --no-hooks
+ 	fi
+ 
+-	bootloader_path="${ESP_PATH}/EFI/refind/refind_x64.efi"
++	bootloader_path="${ESP_PATH}/EFI/refind/${UEFI_REFIND_FILE}"
+ 	if [[ -f "${bootloader_path}" ]]; then
+ 		limine-entry-tool --add-efi "rEFInd" "${bootloader_path}" --comment "rEFInd bootloader" --priority 20 --quiet --no-mutex --no-hooks
+ 	fi
+ 
+-	bootloader_path="${ESP_PATH}/EFI/BOOT/BOOTX64.EFI"
++	bootloader_path="${ESP_PATH}/EFI/BOOT/${UEFI_FALLBACK_FILE}"
+ 	if [[ -f "${bootloader_path}" ]]; then
+ 		limine-entry-tool --add-efi "EFI fallback" "${bootloader_path}" --comment "Default EFI loader" --priority 10 --quiet --no-mutex --no-hooks
+ 	fi
+diff --git a/install/arch-linux/limine-entry-tool/usr/lib/limine/limine-common-functions b/install/arch-linux/limine-entry-tool/usr/lib/limine/limine-common-functions
+index b56cc30..53952c6 100644
+--- a/install/arch-linux/limine-entry-tool/usr/lib/limine/limine-common-functions
++++ b/install/arch-linux/limine-entry-tool/usr/lib/limine/limine-common-functions
+@@ -49,11 +49,14 @@ mutex_unlock() {
+ }
+ 
+ is_uefi() {
+-	[[ -d /sys/firmware/efi ]]
++	[[ "${LIMINE_FORCE_UEFI:-no}" == "yes" || -d /sys/firmware/efi ]]
+ }
+ 
+-is_x64() {
+-	[[ "$(uname -m)" == "x86_64" ]]
++is_supported_uefi_arch() {
++	case "$(uname -m)" in
++	x86_64 | aarch64 | arm64) return 0 ;;
++	*) return 1 ;;
++	esac
+ }
+ 
+ ### Load key=value config
+@@ -327,7 +330,7 @@ restore_limine_binary() {
+ }
+ 
+ reset_enroll_config() {
+-	is_x64 || return 0
++	is_supported_uefi_arch || return 0
+ 	is_uefi || return 0
+ 	if restore_limine_binary; then
+ 		return 0
+@@ -342,7 +345,7 @@ reset_enroll_config() {
+ 
+ ### Enroll Limine config into Limine binary file, then sign the binary.
+ enroll_config() {
+-	is_x64 || return 0
++	is_supported_uefi_arch || return 0
+ 	is_uefi || return 0
+ 	restore_limine_binary
+ 	if [[ -f "$LIMINE_CONFIG_PATH" && "$ENABLE_ENROLL_LIMINE_CONFIG" == "yes" ]]; then
+@@ -381,22 +384,43 @@ initialize_header() {
+ 	check_boot_partition "$ESP_PATH" || return 1
+ 	get_machine_id || return 1
+ 
++	local source_file efi_suffix fallback_file systemd_boot_file refind_file
++	case "$(uname -m)" in
++	x86_64)
++		source_file="/usr/share/limine/BOOTX64.EFI"
++		efi_suffix="x64"
++		fallback_file="BOOTX64.EFI"
++		systemd_boot_file="systemd-bootx64.efi"
++		refind_file="refind_x64.efi"
++		;;
++	aarch64 | arm64)
++		source_file="/usr/share/limine/BOOTAA64.EFI"
++		efi_suffix="aa64"
++		fallback_file="BOOTAA64.EFI"
++		systemd_boot_file="systemd-bootaa64.efi"
++		refind_file="refind_aa64.efi"
++		;;
++	*)
++		error_msg "Unsupported UEFI architecture: $(uname -m)"
++		return 1
++		;;
++	esac
++
+ 	# Source and target file paths
+-	if [[ -n "${LIMINE_BINARY_PATH:-}" ]]; then
+-		export BINARY_SOURCE_PATH="$LIMINE_BINARY_PATH"
+-	else
+-		export BINARY_SOURCE_PATH="/usr/share/limine/BOOTX64.EFI"
+-	fi
++	export BINARY_SOURCE_PATH="${LIMINE_BINARY_PATH:-$source_file}"
+ 
+ 	export LIMINE_DIR_PATH="${ESP_PATH}/EFI/limine/"
+-	export LIMINE_EFI_FILE="limine_x64.efi"
+-	export LIMINE_BACKUP_FILE="limine_x64.bak"
++	export LIMINE_EFI_FILE="limine_${efi_suffix}.efi"
++	export LIMINE_BACKUP_FILE="limine_${efi_suffix}.bak"
+ 
+ 	export BINARY_TARGET_PATH="${LIMINE_DIR_PATH}${LIMINE_EFI_FILE}"
+ 	export BINARY_BACKUP_PATH="${LIMINE_DIR_PATH}${LIMINE_BACKUP_FILE}"
+-	export BINARY_FALLBACK_PATH="${ESP_PATH}/EFI/BOOT/BOOTX64.EFI"
++	export BINARY_FALLBACK_PATH="${ESP_PATH}/EFI/BOOT/${fallback_file}"
+ 
+ 	export LIMINE_EFI_PATH="\\EFI\\limine\\${LIMINE_EFI_FILE}"
+ 	export LIMINE_CONFIG_PATH="${ESP_PATH}/limine.conf"
++	export UEFI_SYSTEMD_BOOT_FILE="$systemd_boot_file"
++	export UEFI_REFIND_FILE="$refind_file"
++	export UEFI_FALLBACK_FILE="$fallback_file"
+ 	return 0
+ }

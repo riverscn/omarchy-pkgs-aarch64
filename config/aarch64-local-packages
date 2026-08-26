@@ -1,0 +1,8 @@
+# Packages whose sources intentionally do not mirror an identically named
+# artifact from pkgs.omarchy.org/stable/x86_64.
+gradle
+omarchy-aarch64-keyring
+omarchy
+omarchy-settings
+omarchy-spice-guest-tools
+

@@ -1,0 +1,153 @@
+#!/bin/bash
+
+set -euo pipefail
+
+BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
+source "$BUILD_ROOT/helpers/aarch64-stable.sh"
+
+SCOPE="$BUILD_ROOT/config/aarch64-packages"
+LOCAL_PACKAGES="$BUILD_ROOT/config/aarch64-local-packages"
+OVERLAY_PACKAGES="$BUILD_ROOT/config/aarch64-overlay-packages"
+UPSTREAM_URL=${OMARCHY_PKGS_UPSTREAM_URL:-https://github.com/omacom-io/omarchy-pkgs.git}
+SOURCE_URL=${OMARCHY_AARCH64_SOURCE_URL:-https://github.com/riverscn/omarchy-aarch64.git}
+
+temp_dir=$(mktemp -d)
+trap 'rm -rf "$temp_dir"' EXIT
+stable_load_official_db "$temp_dir/omarchy.db.tar.zst"
+
+if git -C "$BUILD_ROOT" remote get-url upstream >/dev/null 2>&1; then
+  git -C "$BUILD_ROOT" remote set-url upstream "$UPSTREAM_URL"
+else
+  git -C "$BUILD_ROOT" remote add upstream "$UPSTREAM_URL"
+fi
+git -C "$BUILD_ROOT" fetch --quiet --prune --tags upstream master
+
+recipe_version_at() {
+  local commit="$1"
+  local package="$2"
+  local inspect_dir="$temp_dir/inspect-$package"
+  rm -rf "$inspect_dir"
+  mkdir -p "$inspect_dir"
+  git -C "$BUILD_ROOT" show "$commit:pkgbuilds/$package/PKGBUILD" > "$inspect_dir/PKGBUILD" 2>/dev/null || return 1
+  stable_local_version "$inspect_dir"
+}
+
+find_stable_recipe_commit() {
+  local package="$1"
+  local wanted="$2"
+  local commit version
+
+  while IFS= read -r commit; do
+    version=$(recipe_version_at "$commit" "$package") || continue
+    if [[ $version == "$wanted" ]]; then
+      printf '%s\n' "$commit"
+      return 0
+    fi
+  done < <(git -C "$BUILD_ROOT" rev-list upstream/master -- "pkgbuilds/$package/PKGBUILD")
+
+  return 1
+}
+
+export_recipe() {
+  local package="$1"
+  local commit="$2"
+  local stage="$temp_dir/export-$package"
+  local target="$BUILD_ROOT/pkgbuilds/$package"
+
+  rm -rf "$stage"
+  mkdir -p "$stage"
+  git -C "$BUILD_ROOT" archive "$commit" "pkgbuilds/$package" | bsdtar -xf - -C "$stage"
+  rm -rf "$target"
+  cp -a "$stage/pkgbuilds/$package" "$target"
+}
+
+sync_exact_recipe() {
+  local package="$1"
+  local wanted=${OFFICIAL_STABLE_VERSION[$package]:-}
+  local current
+
+  [[ -n $wanted ]] || { echo "ERROR: $package is absent from official stable" >&2; return 1; }
+  current=$(stable_local_version "$BUILD_ROOT/pkgbuilds/$package")
+  [[ $current != "$wanted" ]] || return 0
+
+  local commit
+  commit=$(find_stable_recipe_commit "$package" "$wanted") || {
+    echo "ERROR: no upstream recipe for stable $package $wanted" >&2
+    return 1
+  }
+  echo "Syncing $package: $current -> $wanted (${commit:0:12})"
+  export_recipe "$package" "$commit"
+}
+
+sync_overlay_recipe() {
+  local package="$1"
+  local wanted=${OFFICIAL_STABLE_VERSION[$package]:-}
+  local current
+
+  [[ -n $wanted ]] || { echo "ERROR: overlay package $package is absent from official stable" >&2; return 1; }
+  current=$(stable_local_version "$BUILD_ROOT/pkgbuilds/$package")
+  if [[ $(stable_version_pkgver "$current") == "$(stable_version_pkgver "$wanted")" ]] &&
+     (( $(vercmp "$current" "$wanted") > 0 )); then
+    return 0
+  fi
+
+  local commit overlay_backup target official_pkgrel
+  commit=$(find_stable_recipe_commit "$package" "$wanted") || {
+    echo "ERROR: no upstream recipe for stable overlay $package $wanted" >&2
+    return 1
+  }
+  target="$BUILD_ROOT/pkgbuilds/$package"
+  overlay_backup="$temp_dir/overlay-$package"
+  cp -a "$target/.omarchy" "$overlay_backup"
+
+  echo "Syncing overlay $package: $current over $wanted (${commit:0:12})"
+  export_recipe "$package" "$commit"
+  rm -rf "$target/.omarchy"
+  cp -a "$overlay_backup" "$target/.omarchy"
+  patch --batch --forward -p1 -d "$target" < "$target/.omarchy/patches/aarch64-uefi.patch"
+  (cd "$target" && ./.omarchy/post-sync.sh)
+
+  official_pkgrel=$(stable_version_pkgrel "$wanted")
+  sed -i "s/^pkgrel=.*/pkgrel=${official_pkgrel}.1/" "$target/PKGBUILD"
+}
+
+sync_omarchy_pair() {
+  local official=${OFFICIAL_STABLE_VERSION[omarchy]:-}
+  [[ -n $official ]] || { echo "ERROR: omarchy is absent from official stable" >&2; return 1; }
+  local base current tag
+  base=$(stable_version_pkgver "$official")
+  current=$(stable_local_version "$BUILD_ROOT/pkgbuilds/omarchy")
+
+  if [[ $(stable_version_pkgver "$current") == "$base".* ]]; then
+    return 0
+  fi
+
+  tag=$(
+    git ls-remote --tags --refs "$SOURCE_URL" "refs/tags/v${base}-aarch64.*" |
+      awk -F/ '{ print $3 }' | sort -V | tail -n 1
+  )
+  [[ -n $tag ]] || {
+    echo "ERROR: official stable is $official but no v${base}-aarch64.N source tag exists" >&2
+    return 1
+  }
+
+  echo "Syncing Omarchy pair from $tag (official stable $official)"
+  "$BUILD_ROOT/bin/sync-omarchy-aarch64" "$tag"
+}
+
+while IFS= read -r package; do
+  if stable_list_contains "$LOCAL_PACKAGES" "$package"; then
+    continue
+  elif stable_list_contains "$OVERLAY_PACKAGES" "$package"; then
+    sync_overlay_recipe "$package"
+  else
+    sync_exact_recipe "$package"
+  fi
+done < <(stable_read_list "$SCOPE")
+
+sync_omarchy_pair
+
+OMARCHY_OFFICIAL_STABLE_DB_FILE="$temp_dir/omarchy.db.tar.zst" \
+  "$BUILD_ROOT/bin/check-official-stable" >/dev/null
+
+echo "PASS: AArch64 recipes match the official stable package set"

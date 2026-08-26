@@ -1,0 +1,30 @@
+# Packages maintained by the generic AArch64 VM release channel.
+#
+# Keep this list aligned with omarchy-aarch64-image's local package scope until
+# that project consumes the signed repository directly. Gradle is a build-time
+# dependency of the Limine tools; the remaining entries are runtime packages.
+gradle
+omarchy-aarch64-keyring
+omarchy-keyring
+limine-mkinitcpio-hook
+limine-snapper-sync
+omarchy-settings
+omarchy
+omarchy-spice-guest-tools
+aether
+cliamp
+herdr
+localsend
+mise-bin
+omacalc
+omacut
+omawrite
+omarchy-nvim
+ttfx
+tobi-try
+ttf-ia-writer
+ttf-jetbrains-mono-nerd-basic
+ufw-docker
+xdg-terminal-exec
+yaru-icon-theme
+yay

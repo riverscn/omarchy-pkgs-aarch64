@@ -1,12 +1,14 @@
 #!/bin/bash
 # Build script - builds packages based on package metadata
 # Unscoped edge builds exclude skip_build packages. Stable also requires the fast release ring.
-# Explicit --package selections may build packages with skip_build=true.
+# Explicit --package selections may build packages with skip_build=true. The
+# caller can also opt those named packages out of release-ring filtering.
 
 # Setup directories
 ARCH=${ARCH:-x86_64}
 MIRROR=${MIRROR:-edge}
 DRY_RUN=${DRY_RUN:-false}
+FORCE_EXPLICIT=${FORCE_EXPLICIT:-false}
 PKGBUILDS_DIR=${PKGBUILDS_DIR:-/pkgbuilds}
 BUILD_OUTPUT_DIR=${BUILD_OUTPUT_DIR:-/build-output/$MIRROR/$ARCH}
 FINAL_OUTPUT_DIR=${FINAL_OUTPUT_DIR:-/pkgs.omarchy.org/$MIRROR/$ARCH}
@@ -286,9 +288,23 @@ build_package() {
     # Ensure output directory exists
     mkdir -p "$BUILD_OUTPUT_DIR"
     
+    local copied_package=false
     for pkg_file in *.pkg.tar.*; do
-      [[ -f "$pkg_file" ]] && cp "$pkg_file" "$BUILD_OUTPUT_DIR/"
+      if [[ -f "$pkg_file" ]]; then
+        if ! cp "$pkg_file" "$BUILD_OUTPUT_DIR/"; then
+          echo "    Failed to copy $pkg_file to $BUILD_OUTPUT_DIR"
+          FAILED_PACKAGES="$FAILED_PACKAGES $pkg"
+          return 1
+        fi
+        copied_package=true
+      fi
     done
+
+    if [[ "$copied_package" != true ]]; then
+      echo "    Makepkg completed without producing a package archive"
+      FAILED_PACKAGES="$FAILED_PACKAGES $pkg"
+      return 1
+    fi
 
     cd "$BUILD_OUTPUT_DIR"
 
@@ -446,7 +462,7 @@ if [[ -n "$PACKAGES" ]]; then
       exit 1
     fi
 
-    if ! package_builds_for_mirror "$pkgdir" "$MIRROR"; then
+    if [[ "$FORCE_EXPLICIT" != true ]] && ! package_builds_for_mirror "$pkgdir" "$MIRROR"; then
       if [[ "$MIRROR" == "stable" ]]; then
         echo "  - $pkg_name - not in release_ring=fast; build edge and promote with repo migrate"
       else

@@ -8,11 +8,11 @@ on:
 
 jobs:
   self-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -21,11 +21,16 @@ jobs:
       - name: Run self-tests
         run: |
           docker run --rm \
-            -v "$PWD:/workspace:ro" \
+            -e HOST_UID="$(id -u)" \
+            -e HOST_GID="$(id -g)" \
+            -v "$PWD:/workspace" \
             -w /workspace \
             archlinux:base-devel bash -lc '
               set -euo pipefail
               pacman -Syu --noconfirm jq
+              groupadd -g "$HOST_GID" runner
+              useradd -m -u "$HOST_UID" -g "$HOST_GID" runner
+              runuser -u runner -- ./test/aarch64-downstream-test.sh
               ./bin/sync-upstream self-test
               ./bin/omarchy-pkgs self-test
             '

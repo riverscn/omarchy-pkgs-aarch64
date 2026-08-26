@@ -1,0 +1,79 @@
+#!/bin/bash
+
+set -euo pipefail
+
+BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
+source "$BUILD_ROOT/helpers/docker-helpers.sh"
+
+VERSION_SET=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --version-set) VERSION_SET=$(realpath "$2"); shift 2 ;;
+    *) echo "Usage: $0 --version-set <json>" >&2; exit 1 ;;
+  esac
+done
+
+[[ -f $VERSION_SET ]] || { echo "ERROR: version-set JSON is required" >&2; exit 1; }
+jq -e '.schema == 1 and .architecture == "aarch64" and .channel == "stable"' "$VERSION_SET" >/dev/null
+: "${GPG_PRIVATE_KEY:?GPG_PRIVATE_KEY is required}"
+: "${GPG_PASSPHRASE:?GPG_PASSPHRASE is required}"
+signing_fingerprint=$(<"$BUILD_ROOT/config/aarch64-signing-fingerprint")
+[[ $signing_fingerprint =~ ^[0-9A-F]{40}$ ]] || {
+  echo "ERROR: invalid repository signing fingerprint" >&2
+  exit 1
+}
+
+"$BUILD_ROOT/bin/sign" --arch aarch64 --mirror stable
+"$BUILD_ROOT/bin/promote-build" --arch aarch64 --mirror stable
+"$BUILD_ROOT/bin/clean-repo" --arch aarch64 --mirror stable
+"$BUILD_ROOT/bin/update-repo" --arch aarch64 --mirror stable
+"$BUILD_ROOT/bin/sign-database" --arch aarch64 --mirror stable
+
+repo="$BUILD_ROOT/pkgs.omarchy.org/stable/aarch64"
+cp --remove-destination "$repo/omarchy.db.tar.zst" "$repo/omarchy.db"
+cp --remove-destination "$repo/omarchy.files.tar.zst" "$repo/omarchy.files"
+cp "$repo/omarchy.db.tar.zst.sig" "$repo/omarchy.db.sig"
+cp "$repo/omarchy.files.tar.zst.sig" "$repo/omarchy.files.sig"
+cp "$VERSION_SET" "$repo/repository-version-set.json"
+
+public_key="$BUILD_ROOT/pkgbuilds/omarchy-aarch64-keyring/omarchy-aarch64.gpg"
+cp "$public_key" "$repo/omarchy-aarch64.gpg"
+verify_home=$(mktemp -d)
+trap 'rm -rf "$verify_home"' EXIT
+chmod 700 "$verify_home"
+GNUPGHOME=$verify_home gpg --batch --import "$public_key" >/dev/null 2>&1
+
+for package in "$repo"/*.pkg.tar.zst; do
+  [[ -f $package.sig ]] || { echo "ERROR: missing signature for ${package##*/}" >&2; exit 1; }
+  GNUPGHOME=$verify_home gpg --batch --verify "$package.sig" "$package" >/dev/null 2>&1
+done
+for database in omarchy.db omarchy.db.tar.zst omarchy.files omarchy.files.tar.zst; do
+  GNUPGHOME=$verify_home gpg --batch --verify "$repo/$database.sig" "$repo/$database" >/dev/null 2>&1
+done
+
+read -r -a platform_args <<< "$(get_platform_arg aarch64)"
+docker run --rm "${platform_args[@]}" --user root \
+  -v "$repo:/repository:ro" \
+  -v "$BUILD_ROOT/config:/config:ro" \
+  -v "$BUILD_ROOT/pkgbuilds/omarchy-aarch64-keyring:/public:ro" \
+  -v "$BUILD_ROOT/build:/build:ro" \
+  omarchy-pkg-builder:latest-aarch64-stable /build/validate-repository.sh
+
+jq -S -n \
+  --slurpfile state "$repo/repository-version-set.json" \
+  --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --arg signing_fingerprint "$signing_fingerprint" \
+  '{schema: 1, generated_at: $generated_at, signing_fingerprint: $signing_fingerprint, state: $state[0]}' \
+  > "$repo/repository-manifest.json"
+
+(
+  cd "$repo"
+  sha256sum -- \
+    *.pkg.tar.zst *.pkg.tar.zst.sig \
+    omarchy.db omarchy.db.sig omarchy.db.tar.zst omarchy.db.tar.zst.sig \
+    omarchy.files omarchy.files.sig omarchy.files.tar.zst omarchy.files.tar.zst.sig \
+    omarchy-aarch64.gpg repository-version-set.json repository-manifest.json | \
+    sort -k2 > SHA256SUMS
+)
+
+echo "Prepared and validated GitHub Release assets in $repo"

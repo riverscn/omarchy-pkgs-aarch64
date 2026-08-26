@@ -61,9 +61,12 @@ get_platform_arg() {
 
 make_dir_writable() {
   local dir="$1"
-  if [ "$(id -u)" -eq 0 ]; then
-    chmod -R 777 "$dir"
-  else
-    sudo chown -R $(id -u):$(id -g) "$dir" 2>/dev/null || chmod -R 777 "$dir"
+
+  # Bind mounts retain host ownership, while the image deliberately runs as an
+  # unprivileged builder user. It only needs to create, replace, and unlink
+  # entries in this output directory; changing package-file ownership or modes
+  # is both unnecessary and can fail with user-namespaced Docker.
+  if ! chmod a+rwx "$dir" 2>/dev/null; then
+    sudo chmod a+rwx "$dir"
   fi
 }

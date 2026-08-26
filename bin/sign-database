@@ -1,0 +1,30 @@
+#!/bin/bash
+
+set -euo pipefail
+
+BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
+source "$BUILD_ROOT/helpers/message-helpers.sh"
+source "$BUILD_ROOT/helpers/docker-helpers.sh"
+source "$BUILD_ROOT/helpers/paths.sh"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --arch) ARCH="$2"; update_arch_paths; shift 2 ;;
+    --mirror) MIRROR="$2"; update_arch_paths; shift 2 ;;
+    *) echo "Usage: $0 [--arch aarch64] [--mirror stable]" >&2; exit 1 ;;
+  esac
+done
+
+: "${GPG_PRIVATE_KEY:?GPG_PRIVATE_KEY is required}"
+: "${GPG_PASSPHRASE:?GPG_PASSPHRASE is required}"
+[[ -d $REPO_DIR ]] || { echo "ERROR: repository directory is missing: $REPO_DIR" >&2; exit 1; }
+
+check_docker
+build_docker_image "$BUILD_DIR" "$ARCH" "$MIRROR"
+read -r -a platform_args <<< "$(get_platform_arg "$ARCH")"
+docker run --rm "${platform_args[@]}" \
+  -e GPG_PRIVATE_KEY="$GPG_PRIVATE_KEY" \
+  -e GPG_PASSPHRASE="$GPG_PASSPHRASE" \
+  -v "$REPO_DIR:/repository" \
+  -v "$BUILD_DIR:/build:ro" \
+  "omarchy-pkg-builder:latest-$ARCH-$MIRROR" /build/sign-repository.sh

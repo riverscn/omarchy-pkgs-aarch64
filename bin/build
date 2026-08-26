@@ -12,6 +12,7 @@ source "$BUILD_ROOT/helpers/paths.sh"
 print_header "Omarchy Package Builder"
 
 DRY_RUN=false
+FORCE_EXPLICIT=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -43,6 +44,10 @@ while [[ $# -gt 0 ]]; do
     DRY_RUN=true
     shift
     ;;
+  --force-explicit)
+    FORCE_EXPLICIT=true
+    shift
+    ;;
   -h | --help)
     echo "Usage: $0 [OPTIONS]"
     echo ""
@@ -50,13 +55,15 @@ while [[ $# -gt 0 ]]; do
     echo "  --arch <arch>        Target architecture (x86_64 or aarch64, default: x86_64)"
     echo "  --mirror <mirror>    Mirror to use (edge or stable, default: edge)"
     echo "  --package <names>    Build only the specified package(s) (space-separated)"
-    echo "  --dry-run           Show what would build without running makepkg"
+    echo "  --force-explicit     Ignore release-ring policy for explicitly named packages"
+    echo "  --dry-run            Show what would build without running makepkg"
     echo "  -h, --help           Show this help message"
     echo ""
     echo "This script builds packages from pkgbuilds/ based on .omarchy/package.json:"
     echo "  --mirror edge:   builds packages not marked skip_build=true"
     echo "  --mirror stable: builds fast-ring packages not marked skip_build=true"
     echo "  --package:       explicitly builds selected packages, even with skip_build=true"
+    echo "  --force-explicit: also permits selected stable packages outside the fast ring"
     echo ""
     echo "Or build specific packages with --package:"
     echo "  Package names should match directories in pkgbuilds/"
@@ -76,6 +83,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ "$FORCE_EXPLICIT" == true && -z "$PACKAGES" ]]; then
+  print_error "--force-explicit requires --package"
+  exit 1
+fi
+
 # Show target architecture and mirror after parsing args
 print_info "Target architecture: $ARCH"
 print_info "Mirror: $MIRROR"
@@ -87,6 +99,7 @@ if [[ "$DRY_RUN" == true ]]; then
   ARCH="$ARCH" \
     MIRROR="$MIRROR" \
     PACKAGES="$PACKAGES" \
+    FORCE_EXPLICIT="$FORCE_EXPLICIT" \
     DRY_RUN=true \
     PKGBUILDS_DIR="$PKGBUILDS_DIR" \
     BUILD_OUTPUT_DIR="$BUILD_OUTPUT_DIR" \
@@ -143,12 +156,20 @@ DOCKER_ARGS=(
   -e ARCH="$ARCH"
   -e MIRROR="$MIRROR"
   -e PACKAGES="$PACKAGES"
+  -e FORCE_EXPLICIT="$FORCE_EXPLICIT"
   -v "$BUILD_ROOT/build-output:/build-output"
   -v "$BUILD_ROOT/pkgs.omarchy.org:/pkgs.omarchy.org"
   -v "$BUILD_DIR:/build:ro"
   -v "$BUILD_ROOT/helpers:/helpers:ro"
   -v "$BUILD_ROOT/pkgbuilds:/pkgbuilds:ro"
 )
+
+if [[ -n ${OMARCHY_SRC:-} ]]; then
+  DOCKER_ARGS+=(
+    -e OMARCHY_SRC=/omarchy-src
+    -v "$OMARCHY_SRC:/omarchy-src:ro"
+  )
+fi
 
 # Run the builder with assembled args
 IMAGE_TAG="omarchy-pkg-builder:latest-$ARCH-$MIRROR"
