@@ -1,0 +1,2 @@
+pkgbuilds/limine-mkinitcpio-hook/*.patch -whitespace
+pkgbuilds/limine-mkinitcpio-hook/.omarchy/files/*.patch -whitespace

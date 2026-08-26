@@ -9,6 +9,7 @@ ARCH=${ARCH:-x86_64}
 MIRROR=${MIRROR:-edge}
 DRY_RUN=${DRY_RUN:-false}
 FORCE_EXPLICIT=${FORCE_EXPLICIT:-false}
+REBUILD_EXPLICIT=${REBUILD_EXPLICIT:-false}
 PKGBUILDS_DIR=${PKGBUILDS_DIR:-/pkgbuilds}
 BUILD_OUTPUT_DIR=${BUILD_OUTPUT_DIR:-/build-output/$MIRROR/$ARCH}
 FINAL_OUTPUT_DIR=${FINAL_OUTPUT_DIR:-/pkgs.omarchy.org/$MIRROR/$ARCH}
@@ -61,10 +62,30 @@ EOF
 
   # Add omarchy repo if it has a database (stable packages)
   if [[ -f "$FINAL_OUTPUT_DIR/omarchy.db.tar.zst" ]] || [[ -f "$FINAL_OUTPUT_DIR/omarchy.db" ]]; then
+    repository_siglevel='Optional TrustAll'
+    if [[ "$ARCH" == aarch64 ]]; then
+      repository_key="$PKGBUILDS_DIR/omarchy-aarch64-keyring/omarchy-aarch64.gpg"
+      [[ -f "$repository_key" ]] || {
+        echo "ERROR: AArch64 repository bootstrap key is missing: $repository_key" >&2
+        exit 1
+      }
+      repository_fingerprint=$(gpg --batch --with-colons --show-keys "$repository_key" 2>/dev/null |
+        awk -F: '$1 == "fpr" {print $10; exit}')
+      [[ "$repository_fingerprint" =~ ^[0-9A-F]{40}$ ]] || {
+        echo "ERROR: AArch64 repository bootstrap key is invalid" >&2
+        exit 1
+      }
+      sudo pacman-key --add "$repository_key"
+      # The disposable builder intentionally carries no pacman keyring secret
+      # key, so it cannot create a local certification. TrustAll skips only
+      # that web-of-trust decision; Required still cryptographically verifies
+      # every database and package with the pinned key imported above.
+      repository_siglevel='Required TrustAll'
+    fi
     sudo tee -a /etc/pacman.conf > /dev/null <<EOF
 
 [omarchy]
-SigLevel = Optional TrustAll
+SigLevel = $repository_siglevel
 Server = file://$FINAL_OUTPUT_DIR
 EOF
     echo "  -> omarchy (priority 2): $FINAL_OUTPUT_DIR"
@@ -479,7 +500,7 @@ if [[ -n "$PACKAGES" ]]; then
       continue
     fi
 
-    if check_needs_build "$pkg_name"; then
+    if [[ "$REBUILD_EXPLICIT" == true ]] || check_needs_build "$pkg_name"; then
       PACKAGES_TO_BUILD+=("$pkg_name")
     else
       echo "  + $pkg_name - already up to date"

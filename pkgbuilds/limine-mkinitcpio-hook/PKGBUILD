@@ -4,7 +4,7 @@ pkgname="limine-mkinitcpio-hook"
 _pkgver=1.37.1
 _extver=""
 pkgver="${_pkgver}${_extver}"
-pkgrel=1.1
+pkgrel=1.2
 pkgdesc="Install kernels for the Limine bootloader."
 arch=('x86_64' 'aarch64')
 url="https://gitlab.com/Zesko/limine-entry-tool"
@@ -32,7 +32,7 @@ makedepends=('git' 'gradle')
 backup=(etc/limine-entry-tool.conf)
 conflicts=('limine-entry-tool')
 sha256sums=('e0a1d5800ef1b0a79eee935d1a295d4b929a713686e8bb8340484d402deb5621'
-	'dfe516735f6120340774ff3473f41df76256151f5fb2d8f2fe685390fc0cd0f0')
+	'bf0d9f8d9f2a4ccc909e4e115145f100b97e399193d4ebbb02abc6f5bd619cfe')
 sha256sums_x86_64=('e9cd1637be853e105f8b09125b4b19fbce385696465d782cbca8bb80e1df8f0d')
 sha256sums_aarch64=('5e79978983439d28506ebef82254fe9f98995121208dc8be77c604f4ad5bc579')
 

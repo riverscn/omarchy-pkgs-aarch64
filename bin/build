@@ -13,6 +13,7 @@ print_header "Omarchy Package Builder"
 
 DRY_RUN=false
 FORCE_EXPLICIT=false
+REBUILD_EXPLICIT=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -48,6 +49,10 @@ while [[ $# -gt 0 ]]; do
     FORCE_EXPLICIT=true
     shift
     ;;
+  --rebuild-explicit)
+    REBUILD_EXPLICIT=true
+    shift
+    ;;
   -h | --help)
     echo "Usage: $0 [OPTIONS]"
     echo ""
@@ -56,6 +61,7 @@ while [[ $# -gt 0 ]]; do
     echo "  --mirror <mirror>    Mirror to use (edge or stable, default: edge)"
     echo "  --package <names>    Build only the specified package(s) (space-separated)"
     echo "  --force-explicit     Ignore release-ring policy for explicitly named packages"
+    echo "  --rebuild-explicit   Rebuild explicitly named packages even at the same version"
     echo "  --dry-run            Show what would build without running makepkg"
     echo "  -h, --help           Show this help message"
     echo ""
@@ -87,6 +93,10 @@ if [[ "$FORCE_EXPLICIT" == true && -z "$PACKAGES" ]]; then
   print_error "--force-explicit requires --package"
   exit 1
 fi
+if [[ "$REBUILD_EXPLICIT" == true && -z "$PACKAGES" ]]; then
+  print_error "--rebuild-explicit requires --package"
+  exit 1
+fi
 
 # Show target architecture and mirror after parsing args
 print_info "Target architecture: $ARCH"
@@ -100,6 +110,7 @@ if [[ "$DRY_RUN" == true ]]; then
     MIRROR="$MIRROR" \
     PACKAGES="$PACKAGES" \
     FORCE_EXPLICIT="$FORCE_EXPLICIT" \
+    REBUILD_EXPLICIT="$REBUILD_EXPLICIT" \
     DRY_RUN=true \
     PKGBUILDS_DIR="$PKGBUILDS_DIR" \
     BUILD_OUTPUT_DIR="$BUILD_OUTPUT_DIR" \
@@ -110,8 +121,11 @@ if [[ "$DRY_RUN" == true ]]; then
   exit $?
 fi
 
-# Create directories if they don't exist
-mkdir -p "$BUILD_OUTPUT_DIR" "$REPO_DIR" "$SRC_DIR"
+# Create directories if they don't exist. Keep makepkg's downloaded sources on
+# the host so forced rebuilds do not repeatedly fetch large immutable inputs
+# such as GraalVM.
+SRCDEST_DIR="$BUILD_ROOT/.srcdest"
+mkdir -p "$BUILD_OUTPUT_DIR" "$REPO_DIR" "$SRC_DIR" "$SRCDEST_DIR"
 
 # Check Docker is available
 check_docker
@@ -149,6 +163,7 @@ mkdir -p "$REPO_DIR"
 # Ensure output directories are writable by container user
 make_dir_writable "$BUILD_OUTPUT_DIR"
 make_dir_writable "$REPO_DIR"
+make_dir_writable "$SRCDEST_DIR"
 
 # Build Docker arguments
 DOCKER_ARGS=(
@@ -157,8 +172,11 @@ DOCKER_ARGS=(
   -e MIRROR="$MIRROR"
   -e PACKAGES="$PACKAGES"
   -e FORCE_EXPLICIT="$FORCE_EXPLICIT"
+  -e REBUILD_EXPLICIT="$REBUILD_EXPLICIT"
+  -e SRCDEST=/srcdest
   -v "$BUILD_ROOT/build-output:/build-output"
   -v "$BUILD_ROOT/pkgs.omarchy.org:/pkgs.omarchy.org"
+  -v "$SRCDEST_DIR:/srcdest"
   -v "$BUILD_DIR:/build:ro"
   -v "$BUILD_ROOT/helpers:/helpers:ro"
   -v "$BUILD_ROOT/pkgbuilds:/pkgbuilds:ro"

@@ -126,3 +126,297 @@ index b56cc30..53952c6 100644
 +	export UEFI_FALLBACK_FILE="$fallback_file"
  	return 0
  }
+diff --git a/install/arch-linux/limine-mkinitcpio-hook/etc/pacman.d/hooks/90-mkinitcpio-install.hook b/install/arch-linux/limine-mkinitcpio-hook/etc/pacman.d/hooks/90-mkinitcpio-install.hook
+--- a/install/arch-linux/limine-mkinitcpio-hook/etc/pacman.d/hooks/90-mkinitcpio-install.hook
++++ b/install/arch-linux/limine-mkinitcpio-hook/etc/pacman.d/hooks/90-mkinitcpio-install.hook
+@@ -16,6 +16,7 @@
+ Operation = Install
+ Operation = Upgrade
+ Target = usr/lib/modules/*/pkgbase
++Target = etc/mkinitcpio.d/*.preset
+ 
+ [Trigger]
+ Type = Package
+diff --git a/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/hooks/60-limine-mkinitcpio-remove-pre.hook b/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/hooks/60-limine-mkinitcpio-remove-pre.hook
+--- a/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/hooks/60-limine-mkinitcpio-remove-pre.hook
++++ b/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/hooks/60-limine-mkinitcpio-remove-pre.hook
+@@ -2,6 +2,7 @@
+ Type = Path
+ Operation = Remove
+ Target = usr/lib/modules/*/pkgbase
++Target = etc/mkinitcpio.d/*.preset
+ 
+ [Action]
+ Description = Record kernels marked for removal in Limine
+diff --git a/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/hooks/90-limine-mkinitcpio-remove-post.hook b/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/hooks/90-limine-mkinitcpio-remove-post.hook
+--- a/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/hooks/90-limine-mkinitcpio-remove-post.hook
++++ b/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/hooks/90-limine-mkinitcpio-remove-post.hook
+@@ -2,6 +2,7 @@
+ Type = Path
+ Operation = Remove
+ Target = usr/lib/modules/*/pkgbase
++Target = etc/mkinitcpio.d/*.preset
+ 
+ [Action]
+ Description = Clean Limine boot entries of removed kernels
+diff --git a/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/scripts/limine-mkinitcpio-install b/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/scripts/limine-mkinitcpio-install
+--- a/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/scripts/limine-mkinitcpio-install
++++ b/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/scripts/limine-mkinitcpio-install
+@@ -16,9 +16,11 @@
+ 
+ # Initialize global variables
+ declare -a PKGBASE_FILES=()
++declare -A SEEN_KERNEL_DESCRIPTORS=()
+ KERNEL_NAME=""
+ KERNEL_VERSION=""
+ KERNEL_DIR=""
++KERNEL_IMAGE=""
+ BOOT_KERNEL_DIR=""
+ INITRAMFS_FALLBACK_PATH=""
+ UKI_PATH=""
+@@ -51,43 +53,86 @@
+ 
+ resolve_uki_prefix
+ 
+-# Collect pkgbase files from pacman hook stdin.
++# Track a pacman-owned descriptor for a kernel. Arch kernels use a pkgbase file;
++# Arch Linux ARM's generic kernel instead ships only a mkinitcpio preset.
++add_kernel_descriptor() {
++	local path="$1"
++	[[ -f "$path" && -z "${SEEN_KERNEL_DESCRIPTORS[$path]:-}" ]] || return 0
++	PKGBASE_FILES+=("$path")
++	SEEN_KERNEL_DESCRIPTORS[$path]=1
++}
++
++collect_all_kernel_descriptors() {
++	local path
++	for path in /usr/lib/modules/*/pkgbase /etc/mkinitcpio.d/*.preset; do
++		add_kernel_descriptor "$path"
++	done
++}
++
++# Collect kernel descriptor files from pacman hook stdin.
+ collect_pkgbase_files() {
+ 	local line path
+ 	local rebuild_all=false
+-	local -A seen_paths=()
+ 	while IFS= read -r line; do
+-		if [[ "$line" != usr/lib/modules/* ]]; then
++		if [[ "$line" == usr/lib/modules/* ]]; then
++			path="/${line/extramodules\//pkgbase}"
++			add_kernel_descriptor "$path"
++		elif [[ "$line" == etc/mkinitcpio.d/*.preset ]]; then
++			add_kernel_descriptor "/$line"
++		else
+ 			rebuild_all=true
+ 			# Do not change "continue" to "break", as it causes:
+ 			# "unable to write to pipe (Broken pipe)" if reading stops early.
+ 			continue
+ 		fi
+-		path="/${line/extramodules\//pkgbase}"
+-		if [[ -z "${seen_paths[$path]:-}" ]]; then
+-			PKGBASE_FILES+=("$path")
+-			seen_paths[$path]=1
+-		fi
+ 	done
+ 	if $rebuild_all; then
+-		PKGBASE_FILES=(/usr/lib/modules/*/pkgbase)
++		PKGBASE_FILES=()
++		SEEN_KERNEL_DESCRIPTORS=()
++		collect_all_kernel_descriptors
+ 	fi
+ }
+ 
+ # Set the global kernel context for the current pkgbase.
+ set_kernel_context() {
+ 	local pkgbase_file="$1"
+-	# Read kernel name from pkgbase file
+-	KERNEL_NAME="$(<"$pkgbase_file")"
++	if [[ "$pkgbase_file" == /etc/mkinitcpio.d/*.preset ]]; then
++		KERNEL_NAME="${pkgbase_file##*/}"
++		KERNEL_NAME="${KERNEL_NAME%.preset}"
++		unset ALL_kver
++		# mkinitcpio presets are shell fragments and are sourced by mkinitcpio too.
++		# shellcheck disable=SC1090
++		source "$pkgbase_file"
++		KERNEL_VERSION="${ALL_kver:-}"
++		KERNEL_DIR="/usr/lib/modules/${KERNEL_VERSION}"
++		case "$(uname -m):$KERNEL_NAME" in
++			aarch64:linux-aarch64 | arm64:linux-aarch64)
++				KERNEL_NAME=linux
++				KERNEL_IMAGE=/boot/Image
++				;;
++			*)
++				error_msg "unsupported preset kernel descriptor '${pkgbase_file}', skipping."
++				return 1
++				;;
++		esac
++		if [[ -z "$KERNEL_VERSION" || ! -d "$KERNEL_DIR" || ! -f "$KERNEL_IMAGE" ]]; then
++			error_msg "invalid kernel preset '${pkgbase_file}', skipping."
++			return 1
++		fi
++	else
++		# Read kernel name from pkgbase file
++		KERNEL_NAME="$(<"$pkgbase_file")"
++		# Read kernel version from the parent directory of the pkgbase file
++		KERNEL_DIR="${pkgbase_file%/pkgbase}"
++		KERNEL_VERSION="${KERNEL_DIR##*/}"
++		KERNEL_IMAGE="${KERNEL_DIR}/vmlinuz"
++	fi
+ 	# Remove all spaces that are invalid in FAT32 names to create kernel file or directory
+ 	KERNEL_NAME="${KERNEL_NAME// /}"
+ 	if [[ -z "${KERNEL_NAME}" ]]; then
+ 		error_msg "kernel name of '${pkgbase_file}' is empty, skipping."
+ 		return 1
+ 	fi
+-	# Read kernel version from the parent directory of the pkgbase file
+-	KERNEL_DIR="${pkgbase_file%/pkgbase}"
+-	KERNEL_VERSION="${KERNEL_DIR##*/}"
+ 	# kernel locations
+ 	BOOT_KERNEL_DIR="${BOOT_PATH}/${MACHINE_ID}/${KERNEL_NAME}"
+ 	INITRAMFS_FALLBACK_PATH="${BOOT_KERNEL_DIR}/initramfs-fallback"
+@@ -126,6 +171,7 @@
+ 		args+=(--no-cmdline)
+ 	fi
+ 	args+=(--uki "$output")
++	[[ -z "$KERNEL_IMAGE" ]] || args+=(--kernelimage "$KERNEL_IMAGE")
+ 	if [[ "$is_fallback" == true ]]; then
+ 		args+=(-S autodetect)
+ 	fi
+@@ -216,7 +262,7 @@
+ 	if [[ -f "$BOOT_KERNEL_DIR/initramfs-${KERNEL_NAME}" ]]; then
+ 		rm -r "$BOOT_KERNEL_DIR"
+ 	fi
+-	install_kernel "$KERNEL_NAME" "$tmp_initramfs" "${KERNEL_DIR}/vmlinuz" "Kernel version: ${KERNEL_VERSION}"
++	install_kernel "$KERNEL_NAME" "$tmp_initramfs" "$KERNEL_IMAGE" "Kernel version: ${KERNEL_VERSION}"
+ 
+ 	if [[ "${MKINITCPIO_FALLBACK:-}" == "yes" || "${MKINITCPIO_FALLBACK:-}" == "$KERNEL_NAME" ]]; then
+ 		info_msg "Building fallback initramfs for ${KERNEL_NAME} (${KERNEL_VERSION})"
+@@ -225,7 +271,7 @@
+ 			error_msg "mkinitcpio failed for kernel ${KERNEL_VERSION}, skipping."
+ 			return 1
+ 		fi
+-		install_kernel "$KERNEL_NAME" "$tmp_initramfs_fb" "${KERNEL_DIR}/vmlinuz" "Kernel version: ${KERNEL_VERSION} fallback" "-fallback"
++		install_kernel "$KERNEL_NAME" "$tmp_initramfs_fb" "$KERNEL_IMAGE" "Kernel version: ${KERNEL_VERSION} fallback" "-fallback"
+ 	elif [[ -f "$INITRAMFS_FALLBACK_PATH" ]]; then
+ 		limine-entry-tool --remove-kernel "${KERNEL_NAME}-fallback" --keep-files --no-mutex --no-hooks --quiet
+ 		rm -f "$INITRAMFS_FALLBACK_PATH"
+diff --git a/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/scripts/limine-mkinitcpio-remove b/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/scripts/limine-mkinitcpio-remove
+--- a/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/scripts/limine-mkinitcpio-remove
++++ b/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/scripts/limine-mkinitcpio-remove
+@@ -10,6 +10,20 @@
+ export HOOK_CALLER="$SCRIPT_NAME"
+ export HOOK_CMDLINE="$*"
+ 
++kernel_name_from_descriptor() {
++	local descriptor="$1" kernel_name
++	if [[ "$descriptor" == */mkinitcpio.d/*.preset ]]; then
++		kernel_name="${descriptor##*/}"
++		kernel_name="${kernel_name%.preset}"
++		case "$(uname -m):$kernel_name" in
++			aarch64:linux-aarch64 | arm64:linux-aarch64) kernel_name=linux ;;
++		esac
++	else
++		kernel_name="$(<"$descriptor")"
++	fi
++	printf '%s\n' "$kernel_name"
++}
++
+ # Record kernels marked for removal before pacman upgrade,
+ # ensuring boot entries are preserved if the upgrade fails.
+ pre_remove() {
+@@ -18,10 +32,10 @@
+ 
+ 	# Read stdin from the libalpm hook
+ 	while read -r targetLine; do
+-		# Match only pkgbase files in /usr/lib/modules/*/pkgbase
+-		if [[ "$targetLine" == */pkgbase ]]; then
++		# Match Arch pkgbase files and Arch Linux ARM mkinitcpio presets.
++		if [[ "$targetLine" == */pkgbase || "$targetLine" == */mkinitcpio.d/*.preset ]]; then
+ 			if [[ -f "$targetLine" ]]; then
+-				kernelName="$(<"$targetLine")"
++				kernelName=$(kernel_name_from_descriptor "$targetLine")
+ 				# Append to remove list
+ 				echo "$kernelName" >>"$REMOVE_LIST"
+ 			fi
+@@ -50,7 +64,13 @@
+ 		return "$rc"
+ 	fi
+ 
+-	valid_kernels=$(pacman -Qqo /usr/lib/modules/*/pkgbase 2>/dev/null || true)
++	valid_kernels=$(
++		for descriptor in /usr/lib/modules/*/pkgbase /etc/mkinitcpio.d/*.preset; do
++			[[ -f "$descriptor" ]] || continue
++			pacman -Qqo "$descriptor" &>/dev/null || continue
++			kernel_name_from_descriptor "$descriptor"
++		done | sort -u
++	)
+ 	while read -r kernelName; do
+ 		# Remove spaces (invalid for kernel file/directory name in FAT32)
+ 		kernelNameClean="${kernelName// /}"
+@@ -58,7 +78,7 @@
+ 		# Skip empty lines
+ 		[[ -z "${kernelNameClean}" ]] && continue
+ 
+-		# If kernel no longer exists in pacman-owned /usr/lib/modules/*/pkgbase
++		# If kernel no longer exists in a pacman-owned descriptor
+ 		if ! grep -qx "$kernelName" <<<"$valid_kernels"; then
+ 			info_msg "Removed unused Limine boot entry: ${kernelName}"
+ 			# Safely remove boot entries of the kernel
++diff --git a/src/main/java/org/limine/entry/tool/Main.java b/src/main/java/org/limine/entry/tool/Main.java
+index 36f636d..40fce4a 100644
+--- a/src/main/java/org/limine/entry/tool/Main.java
++++ b/src/main/java/org/limine/entry/tool/Main.java
+@@ -280,8 +280,8 @@ public final class Main {
+     }
+ 
+     private static void addUki(String kernelName, String comment, EntryOptions kernelEntryOptions, String ukiFilePath) throws IOException {
+-        if (!Utility.isSystemAmd64()) {
+-            exitWithError("Your system is not using x86_64 architecture");
++        if (!Utility.isSystemEfiArchitecture()) {
++            exitWithError("Your system architecture does not support UEFI");
+         }
+         if (!Utility.isSystemEfi()) {
+             exitWithError("Your system is not using EFI mode");
+@@ -311,8 +311,8 @@ public final class Main {
+     }
+ 
+     private static void addEfi(String efiName, String comment, EntryOptions kernelEntryOptions, String efiFilePath, boolean shouldCheckDevice) throws IOException {
+-        if (shouldCheckDevice && !Utility.isSystemAmd64()) {
+-            exitWithError("Your system is not using x86_64 architecture");
++        if (shouldCheckDevice && !Utility.isSystemEfiArchitecture()) {
++            exitWithError("Your system architecture does not support UEFI");
+             return;
+         }
+         if (shouldCheckDevice && !Utility.isSystemEfi()) {
+diff --git a/src/main/java/org/limine/entry/tool/processes/Utility.java b/src/main/java/org/limine/entry/tool/processes/Utility.java
+index 82cdbbc..0fb0541 100644
+--- a/src/main/java/org/limine/entry/tool/processes/Utility.java
++++ b/src/main/java/org/limine/entry/tool/processes/Utility.java
+@@ -557,7 +557,8 @@ public final class Utility {
+      * @return True if the system is running in EFI mode; otherwise, false.
+      */
+     public static boolean isSystemEfi() {
+-        return new File("/sys/firmware/efi").exists();
++        return "yes".equalsIgnoreCase(System.getenv("LIMINE_FORCE_UEFI"))
++                || new File("/sys/firmware/efi").exists();
+     }
+ 
+ 
+@@ -570,6 +571,16 @@ public final class Utility {
+     }
+ 
+ 
++    /**
++     * Check if the system architecture has a Limine UEFI binary.
++     */
++    public static boolean isSystemEfiArchitecture() {
++        String arch = System.getProperty("os.arch").toLowerCase();
++        return arch.equals("x86_64") || arch.equals("amd64")
++                || arch.equals("aarch64") || arch.equals("arm64");
++    }
++
++
+     /**
+      * Validates if the given path is a valid boot partition using FAT32.
+      *

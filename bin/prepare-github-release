@@ -32,8 +32,8 @@ signing_fingerprint=$(<"$BUILD_ROOT/config/aarch64-signing-fingerprint")
 repo="$BUILD_ROOT/pkgs.omarchy.org/stable/aarch64"
 cp --remove-destination "$repo/omarchy.db.tar.zst" "$repo/omarchy.db"
 cp --remove-destination "$repo/omarchy.files.tar.zst" "$repo/omarchy.files"
-cp "$repo/omarchy.db.tar.zst.sig" "$repo/omarchy.db.sig"
-cp "$repo/omarchy.files.tar.zst.sig" "$repo/omarchy.files.sig"
+cp --remove-destination "$repo/omarchy.db.tar.zst.sig" "$repo/omarchy.db.sig"
+cp --remove-destination "$repo/omarchy.files.tar.zst.sig" "$repo/omarchy.files.sig"
 cp "$VERSION_SET" "$repo/repository-version-set.json"
 
 public_key="$BUILD_ROOT/pkgbuilds/omarchy-aarch64-keyring/omarchy-aarch64.gpg"

@@ -99,11 +99,44 @@ actual_fingerprint=$(GNUPGHOME=$key_home \
 grep -Fxq "$expected_fingerprint:4:" \
   "$ROOT/pkgbuilds/omarchy-aarch64-keyring/omarchy-aarch64-trusted" ||
   fail "repository signing key is not trusted by its keyring"
+grep -Fq 'sudo pacman-key --add "$repository_key"' "$ROOT/build/build.sh" ||
+  fail "local AArch64 builds do not bootstrap the signed baseline repository key"
+grep -Fq "repository_siglevel='Required TrustAll'" "$ROOT/build/build.sh" ||
+  fail "local AArch64 builds do not require signatures from the baseline repository"
+grep -Fq 'cp --remove-destination "$repo/omarchy.db.tar.zst.sig"' \
+  "$ROOT/bin/prepare-github-release" ||
+  fail "repository preparation cannot replace repo-add database signature links"
 
 cmp -s \
   "$ROOT/pkgbuilds/limine-mkinitcpio-hook/limine-entry-tool-aarch64.patch" \
   "$ROOT/pkgbuilds/limine-mkinitcpio-hook/.omarchy/files/limine-entry-tool-aarch64.patch" ||
   fail "Limine source patch and AUR-sync copy differ"
+
+limine_package="$ROOT/pkgbuilds/limine-mkinitcpio-hook"
+limine_patch="$limine_package/limine-entry-tool-aarch64.patch"
+readarray -t limine_release < <(
+  bash -c '
+    source "$1" >/dev/null 2>&1
+    printf "%s\n" "$pkgrel" "${sha256sums[1]}"
+  ' _ "$limine_package/PKGBUILD"
+)
+limine_suffix=$(jq -r '.pkgrel.suffix' "$limine_package/.omarchy/package.json")
+[[ ${limine_release[0]} == *.* && ${limine_release[0]##*.} == "$limine_suffix" ]] ||
+  fail "Limine pkgrel does not preserve its downstream release suffix"
+[[ ${limine_release[1]} == "$(sha256sum "$limine_patch" | awk '{print $1}')" ]] ||
+  fail "Limine PKGBUILD does not verify the current downstream patch"
+[[ $(grep -Fc 'Target = etc/mkinitcpio.d/*.preset' "$limine_patch") -eq 3 ]] ||
+  fail "Limine hooks do not install, update, and remove ALARM preset kernels"
+grep -Fq 'KERNEL_IMAGE=/boot/Image' "$limine_patch" ||
+  fail "Limine does not use Arch Linux ARM's generic kernel image"
+grep -Fq 'aarch64:linux-aarch64 | arm64:linux-aarch64' "$limine_patch" ||
+  fail "Limine does not normalize the ALARM kernel to Omarchy's stable UKI name"
+grep -Fq 'args+=(--kernelimage "$KERNEL_IMAGE")' "$limine_patch" ||
+  fail "Limine does not pass the ALARM kernel image into mkinitcpio's UKI build"
+grep -Fq 'isSystemEfiArchitecture()' "$limine_patch" ||
+  fail "Limine native entry tool still rejects AArch64 UKIs"
+grep -Fq 'System.getenv("LIMINE_FORCE_UEFI")' "$limine_patch" ||
+  fail "Limine native entry tool cannot generate UKI entries in an offline image chroot"
 
 grep -q 'TARGETARCH.*amd64' "$ROOT/build/Dockerfile" ||
   fail "build container does not isolate the x86_64-only production repo"
@@ -113,6 +146,11 @@ grep -q "PKGEXT='.pkg.tar.zst'" "$ROOT/build/Dockerfile" ||
   fail "AArch64 build output is not normalized to zstd package archives"
 grep -q -- '--force-explicit' "$ROOT/.github/workflows/release-aarch64.yml" ||
   fail "stable snapshot build does not explicitly bypass upstream release rings"
+grep -Fq -- '--rebuild-explicit requires --package' "$ROOT/bin/build" ||
+  fail "an unpublished same-version AArch64 package cannot be rebuilt explicitly"
+grep -Fq -- '-e SRCDEST=/srcdest' "$ROOT/bin/build" &&
+  grep -Fq -- '-v "$SRCDEST_DIR:/srcdest"' "$ROOT/bin/build" ||
+  fail "makepkg source downloads are not persisted across container builds"
 
 bash -n \
   "$ROOT/bin/check-official-stable" \
