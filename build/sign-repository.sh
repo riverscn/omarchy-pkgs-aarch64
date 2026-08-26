@@ -18,9 +18,14 @@ key_id=$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "sec" { p
 for database in omarchy.db.tar.zst omarchy.files.tar.zst; do
   path="$repository/$database"
   [[ -f $path ]] || { echo "ERROR: missing repository database: $path" >&2; exit 1; }
+  # Incremental releases seed the previous signed database from GitHub. The
+  # bind-mounted signature belongs to the host runner, while this container
+  # deliberately signs as its unprivileged builder user. Remove the obsolete
+  # signature through the writable repository directory before creating the
+  # signature for the newly generated database.
+  rm -f -- "$path.sig"
   gpg --batch --yes --pinentry-mode loopback \
     --passphrase "$GPG_PASSPHRASE" \
     --local-user "$key_id" \
     --detach-sign "$path"
 done
-

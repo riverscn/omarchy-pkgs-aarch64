@@ -120,6 +120,8 @@ grep -Fq -- "--pattern 'omarchy.db'" \
   grep -Fq -- "--pattern 'omarchy.db.sig'" \
     "$ROOT/bin/download-aarch64-baseline" ||
   fail "incremental build baseline lacks pacman's signed database aliases"
+grep -Fq 'rm -f -- "$path.sig"' "$ROOT/build/sign-repository.sh" ||
+  fail "database signing cannot replace a host-owned incremental signature"
 
 for package_name in pinta tensaku tzupdate; do
   find "$ROOT/pkgbuilds/$package_name/.omarchy/patches" -name '*.patch' -print -quit |
