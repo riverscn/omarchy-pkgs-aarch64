@@ -123,10 +123,19 @@ grep -Fq -- "--pattern 'omarchy.db'" \
 grep -Fq 'rm -f -- "$path.sig"' "$ROOT/build/sign-repository.sh" ||
   fail "database signing cannot replace a host-owned incremental signature"
 
-for package_name in pinta tensaku tzupdate; do
+for package_name in bindfs pinta tensaku tzupdate; do
   find "$ROOT/pkgbuilds/$package_name/.omarchy/patches" -name '*.patch' -print -quit |
     grep -q . || fail "$package_name has no reproducible AArch64 overlay"
 done
+
+jq -e '.source == "aur" and (.upstream_commit | length == 40)' \
+  "$ROOT/pkgbuilds/bindfs/.omarchy/package.json" >/dev/null ||
+  fail "bindfs does not follow its pinned AUR recipe"
+grep -Eq "^[[:space:]]*arch=.*'aarch64'" "$ROOT/pkgbuilds/bindfs/PKGBUILD" ||
+  fail "bindfs does not carry its reproducible AArch64 architecture overlay"
+grep -Fq './bin/sync-aur bindfs dotnet-runtime-bin' \
+  "$ROOT/.github/workflows/sync-official-stable.yml" ||
+  fail "stable synchronization does not follow bindfs AUR updates"
 
 jq -e '
   .source == "aur" and .aur == "dotnet-core-bin"

@@ -3,6 +3,7 @@
 # Keep this list aligned with the signed package scope consumed by
 # omarchy-aarch64-image. Gradle is a build-time dependency of the Limine tools;
 # the remaining entries are runtime packages.
+bindfs
 dotnet-runtime-bin
 gradle
 omarchy-aarch64-keyring

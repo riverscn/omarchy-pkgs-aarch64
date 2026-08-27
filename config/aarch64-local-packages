@@ -1,5 +1,6 @@
 # Packages whose sources intentionally do not mirror an identically named
 # artifact from pkgs.omarchy.org/stable/x86_64.
+bindfs
 dotnet-runtime-bin
 gradle
 obsidian

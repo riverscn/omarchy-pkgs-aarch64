@@ -34,7 +34,7 @@ jobs:
               groupadd -g "$HOST_GID" runner
               useradd -m -u "$HOST_UID" -g "$HOST_GID" runner
               chown -R runner:runner /workspace
-              runuser -u runner -- ./bin/sync-aur dotnet-runtime-bin
+              runuser -u runner -- ./bin/sync-aur bindfs dotnet-runtime-bin
               runuser -u runner -- ./bin/sync-upstream obsidian
               runuser -u runner -- ./bin/sync-official-stable
               runuser -u runner -- ./test/aarch64-downstream-test.sh

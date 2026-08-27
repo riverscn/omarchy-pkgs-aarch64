@@ -29,6 +29,8 @@ runtime through the AUR `dotnet-core-bin` recipe. Pinta, Tensaku, and tzupdate
 stay on the versions admitted to the official stable Omarchy repository and
 carry only their required AArch64 packaging adaptations. Pinta's .NET SDK is a
 build dependency; the installed package and VM image contain only the runtime.
+`bindfs` follows AUR directly and carries only the missing AArch64 architecture
+declaration; it supports automatic host-share UID/GID mapping in the VM image.
 
 The latest Release is directly consumable as a pacman repository. Bootstrap its
 public key once, then install the keyring package so future key updates are
