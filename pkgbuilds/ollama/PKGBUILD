@@ -7,7 +7,7 @@ pkgname=(
   ollama-cuda-jetpack5
   ollama-cuda-jetpack6
 )
-pkgver=0.33.1
+pkgver=0.33.2
 pkgrel=1
 pkgdesc='Create, run and share large language models on ARM64'
 arch=('aarch64')
@@ -43,9 +43,9 @@ sha256sums=(
   '940eca99d12d8330b1a5d4c9b7636296fb4b0c4cfb1ccd7a1ddf81c31348a8f7'
 )
 sha256sums_aarch64=(
-  '869b98629bf4a438d1c11669331c8214e8317cdfd7ec3fe4efd44fb929602f57'
-  '2b3168ad27a332e8671e718d5550c7e4309c6939f870be3cd7353a8d80056871'
-  'c563422b3966f8948b8ae0942aea0fb799f02819fe861694526f661152e3e90e'
+  '6c648fd62bc8ea18d19aeb0900a03ff2d6a1fc830d901348d070fb93aca4630e'
+  '00f3c09d806c9d57db67eb92f2ff681536316e8a06a9cd5521f2ec35099f9033'
+  'bd93c96fe95f5d2ee0fe3c9dac73e6d1ed4f08b29c878793956bd1f90aea35a1'
 )
 
 _install_cuda_service() {
