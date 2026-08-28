@@ -1,0 +1,54 @@
+#!/bin/bash
+
+set -euo pipefail
+
+BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
+scope="$BUILD_ROOT/config/aarch64-packages"
+version_set=""
+failure_report=""
+output=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --version-set) version_set=$(realpath "$2"); shift 2 ;;
+    --failure-report) failure_report=$(realpath -m "$2"); shift 2 ;;
+    --output) output=$(realpath -m "$2"); shift 2 ;;
+    *)
+      echo "Usage: $0 --version-set <json> --failure-report <file> --output <json>" >&2
+      exit 1
+      ;;
+  esac
+done
+
+[[ -f $version_set && -n $failure_report && -n $output ]] || {
+  echo "ERROR: version set, failure report, and output are required" >&2
+  exit 1
+}
+jq -e '.schema == 1 and .architecture == "aarch64" and .channel == "stable"' \
+  "$version_set" >/dev/null
+
+if [[ ! -s $failure_report ]]; then
+  cp "$version_set" "$output"
+  exit 0
+fi
+
+mapfile -t failures < <(sed -E '/^[[:space:]]*$/d' "$failure_report" | sort -u)
+(( ${#failures[@]} > 0 )) || {
+  cp "$version_set" "$output"
+  exit 0
+}
+
+for package in "${failures[@]}"; do
+  grep -Fxq "$package" < <(sed -E '/^[[:space:]]*(#|$)/d' "$scope") || {
+    echo "ERROR: failure report names a package outside the AArch64 scope: $package" >&2
+    exit 1
+  }
+done
+
+failed_json=$(printf '%s\n' "${failures[@]}" |
+  jq -Rsc 'split("\n") | map(select(length > 0))')
+jq -S --argjson failures "$failed_json" \
+  '. + {failed_packages: $failures}' "$version_set" > "$output"
+
+echo "Recording a partial release; these package bases remain pending:" >&2
+printf '  - %s\n' "${failures[@]}" >&2

@@ -17,6 +17,30 @@ export GH_STUB_UPLOADS="$work/uploads"
 : > "$GH_STUB_LOG"
 : > "$GH_STUB_UPLOADS"
 
+desired_state="$work/desired-state.json"
+partial_state="$work/partial-state.json"
+complete_state="$work/complete-state.json"
+failure_report="$work/failed-packages"
+jq -S -n '{schema: 1, architecture: "aarch64", channel: "stable", packages: []}' > "$desired_state"
+printf '%s\n' ghostty cursor-bin ghostty > "$failure_report"
+"$ROOT/bin/write-aarch64-release-state" \
+  --version-set "$desired_state" --failure-report "$failure_report" --output "$partial_state" >/dev/null
+jq -e '.failed_packages == ["cursor-bin", "ghostty"]' "$partial_state" >/dev/null || {
+  echo "partial release state did not record sorted unique failures" >&2
+  exit 1
+}
+cmp -s "$desired_state" "$partial_state" && {
+  echo "partial release state would suppress the next retry" >&2
+  exit 1
+}
+: > "$failure_report"
+"$ROOT/bin/write-aarch64-release-state" \
+  --version-set "$desired_state" --failure-report "$failure_report" --output "$complete_state"
+cmp -s "$desired_state" "$complete_state" || {
+  echo "complete release state differs from the desired plan" >&2
+  exit 1
+}
+
 old_package=old-package-1.0-1-aarch64.pkg.tar.zst
 new_package=new-package-2.0-1-aarch64.pkg.tar.zst
 stale_package=stale-package-1.0-1-aarch64.pkg.tar.zst

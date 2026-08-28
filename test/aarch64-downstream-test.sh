@@ -20,12 +20,12 @@ read_scope() {
 }
 
 mapfile -t packages < <(read_scope "$SCOPE")
-[[ ${#packages[@]} -eq 89 ]] || fail "expected 89 AArch64 package bases, found ${#packages[@]}"
+[[ ${#packages[@]} -eq 88 ]] || fail "expected 88 AArch64 package bases, found ${#packages[@]}"
 duplicates=$(printf '%s\n' "${packages[@]}" | sort | uniq -d)
 [[ -z $duplicates ]] || fail "duplicate packages in scope: $duplicates"
 
 mapfile -t excluded_packages < <(read_scope "$EXCLUDED_PACKAGES")
-[[ ${#excluded_packages[@]} -eq 46 ]] || fail "expected 46 audited exclusions, found ${#excluded_packages[@]}"
+[[ ${#excluded_packages[@]} -eq 47 ]] || fail "expected 47 audited exclusions, found ${#excluded_packages[@]}"
 excluded_duplicates=$(printf '%s\n' "${excluded_packages[@]}" | sort | uniq -d)
 [[ -z $excluded_duplicates ]] || fail "duplicate packages in exclusions: $excluded_duplicates"
 scope_overlap=$(comm -12 <(printf '%s\n' "${packages[@]}" | sort) <(printf '%s\n' "${excluded_packages[@]}" | sort))
@@ -115,7 +115,6 @@ qmk-hid
 v4l2-relayd
 xpadneo-dkms
 yt6801-dkms
-libretro-blastem
 libretro-cap32-git
 libretro-database-git
 libretro-desmume
@@ -130,7 +129,7 @@ diff -u <(printf '%s\n' "${expected_scope[@]}") <(printf '%s\n' "${packages[@]}"
   fail "AArch64 scope differs from the audited package set"
 
 [[ $(read_scope "$LOCAL_PACKAGES" | wc -l) -eq 26 ]] || fail "unexpected local-policy package count"
-[[ $(read_scope "$OVERLAY_PACKAGES" | wc -l) -eq 18 ]] || fail "unexpected overlay package count"
+[[ $(read_scope "$OVERLAY_PACKAGES" | wc -l) -eq 19 ]] || fail "unexpected overlay package count"
 for policy_file in "$LOCAL_PACKAGES" "$OVERLAY_PACKAGES"; do
   while IFS= read -r package_name; do
     grep -Fxq "$package_name" < <(read_scope "$SCOPE") ||
@@ -167,7 +166,7 @@ for package_name in "${packages[@]}"; do
     ' <<<"$srcinfo" || fail "$package_name does not emit its requested package name"
   fi
 done
-[[ $output_count -eq 119 ]] || fail "expected 119 AArch64 package outputs, found $output_count"
+[[ $output_count -eq 117 ]] || fail "expected 117 AArch64 package outputs, found $output_count"
 
 vice_srcinfo=$(<"$TEST_TMP/libretro-vice-git.srcinfo")
 for core in x128 x64 x64dtv x64sc xcbm2 xcbm5x0 xpet xplus4 xscpu64 xvic; do
@@ -237,12 +236,13 @@ for mapping in 'bitwarden bitwarden-bin' 'voxtype-bin voxtype' 'zed zed-bin'; do
 done
 
 ollama_srcinfo=$(<"$TEST_TMP/ollama.srcinfo")
-for output in ollama ollama-vulkan ollama-cuda ollama-cuda-jetpack5 ollama-cuda-jetpack6; do
+for output in ollama ollama-cuda ollama-cuda-jetpack5 ollama-cuda-jetpack6; do
   grep -Fq "pkgname = $output" <<<"$ollama_srcinfo" || fail "Ollama does not emit $output"
 done
+grep -Fq 'pkgname = ollama-vulkan' <<<"$ollama_srcinfo" &&
+  fail "Ollama claims a Vulkan output absent from the vendor ARM64 archive"
 grep -Fq 'ollama-linux-arm64-jetpack5.tar.zst' "$ROOT/pkgbuilds/ollama/PKGBUILD" || fail "Ollama lacks JetPack 5"
 grep -Fq 'ollama-linux-arm64-jetpack6.tar.zst' "$ROOT/pkgbuilds/ollama/PKGBUILD" || fail "Ollama lacks JetPack 6"
-grep -Fq 'OLLAMA_VULKAN=1' "$ROOT/pkgbuilds/ollama/ollama-vulkan.conf" || fail "Ollama Vulkan is not enabled"
 grep -qi rocm "$ROOT/pkgbuilds/ollama/PKGBUILD" && fail "Ollama incorrectly ships an ARM ROCm backend"
 
 t3_srcinfo=$(<"$TEST_TMP/t3code-bin.srcinfo")
@@ -260,6 +260,8 @@ for helper in legendary gogdl nile comet GalaxyCommunication EpicGamesLauncher; 
 done
 grep -Fq -- 'electron-builder --linux pacman --arm64' "$ROOT/pkgbuilds/heroic-games-launcher-bin/PKGBUILD" ||
   fail "Heroic does not produce an ARM64 Linux package"
+grep -Fq "makedepends=('nodejs' 'pnpm' 'python')" "$ROOT/pkgbuilds/heroic-games-launcher-bin/PKGBUILD" ||
+  fail "Heroic lacks the pnpm executable used by electron-builder"
 
 rustdesk_srcinfo=$(<"$TEST_TMP/rustdesk.srcinfo")
 grep -Fq 'rustdesk-1.4.9-aarch64.deb' <<<"$rustdesk_srcinfo" || fail "RustDesk lacks its official AArch64 artifact"
@@ -271,6 +273,15 @@ for output in ghostty ghostty-shell-integration ghostty-terminfo ghostty-nautilu
 done
 
 grep -Fq "arch=('any')" "$ROOT/pkgbuilds/yt6801-dkms/PKGBUILD" || fail "yt6801 DKMS sources are not architecture-independent"
+grep -Fq 'pkgver=1.0.34' "$ROOT/pkgbuilds/yt6801-dkms/PKGBUILD" || fail "yt6801 does not match Motorcomm download id 1817"
+grep -Fq "checkdepends=('dkms' 'fakeroot')" "$ROOT/pkgbuilds/xpadneo-dkms/PKGBUILD" || fail "xpadneo contains a kernel-header placeholder"
+grep -Fq 'depends_x86_64=(' "$ROOT/pkgbuilds/sunshine/PKGBUILD" || fail "Sunshine does not isolate Intel MFX to x86_64"
+grep -Fq 'depends_aarch64=(' "$ROOT/pkgbuilds/cursor-bin/PKGBUILD" || fail "Cursor does not use its bundled ARM64 Electron runtime"
+grep -Fq 'voxtype-$pkgver.tar.gz.asc::' "$ROOT/pkgbuilds/voxtype-bin/PKGBUILD" || fail "Voxtype signature asset follows the renamed package instead of upstream"
+grep -Fq 'platform=arm64-unix' "$ROOT/pkgbuilds/libretro-desmume/PKGBUILD" || fail "DeSmuME lacks its ARM64 platform"
+grep -Fq 'platform=arm64' "$ROOT/pkgbuilds/libretro-kronos/PKGBUILD" || fail "Kronos lacks its ARM64 platform"
+grep -Fq 'platform=arm64' "$ROOT/pkgbuilds/libretro-ppsspp/PKGBUILD" || fail "PPSSPP lacks its ARM64 platform"
+grep -Fxq libretro-blastem < <(read_scope "$EXCLUDED_PACKAGES") || fail "x86-only BlastEm is not explicitly excluded"
 for package_name in github-copilot-cli hermes-desktop omasnap qmk-hid v4l2-relayd; do
   srcinfo=$(<"$TEST_TMP/$package_name.srcinfo")
   grep -Fq 'arch = aarch64' <<<"$srcinfo" || fail "$package_name lacks native AArch64 support"
@@ -294,6 +305,8 @@ grep -Fq -- '--database-only' "$ROOT/bin/download-aarch64-baseline" || fail "bas
   fail "build and publish jobs do not seed only the database"
 grep -Fq './bin/publish-github-release' "$ROOT/.github/workflows/release-aarch64.yml" || fail "workflow lacks incremental publisher"
 grep -Fq 'aarch64-changed-packages' "$ROOT/.github/workflows/release-aarch64.yml" || fail "workflow transfers more than changed packages"
+grep -Fq -- '--allow-partial' "$ROOT/.github/workflows/release-aarch64.yml" || fail "workflow blocks all publication after one package failure"
+grep -Fq 'failed_packages' "$ROOT/bin/write-aarch64-release-state" || fail "partial releases do not remain pending for retry"
 grep -Fq 'release_tag=${release_tag:-aarch64-stable}' "$ROOT/bin/publish-github-release" || fail "publisher lacks a permanent tag"
 grep -Fq 'gh release delete-asset' "$ROOT/bin/publish-github-release" || fail "publisher does not prune stale assets"
 grep -Fq 'gh release delete "$old_tag"' "$ROOT/bin/publish-github-release" || fail "publisher does not prune old Releases"
@@ -307,7 +320,7 @@ grep -Fq '"$BUILD_ROOT/bin/repo"' "$ROOT/bin/check-official-stable" || fail "rep
 
 grep -Fq 'local_packages=' "$ROOT/bin/sync-aarch64-sources" || fail "source sync does not distinguish local packages"
 grep -Fq 'sync-arch-packages' "$ROOT/bin/sync-aarch64-sources" || fail "Arch source sync is not wired"
-for package_name in ghostty libretro-blastem libretro-desmume libretro-kronos libretro-ppsspp; do
+for package_name in ghostty libretro-desmume libretro-kronos libretro-ppsspp; do
   jq -e '.source == "local" and .arch_package == true and (.upstream_commit | length == 40)' \
     "$ROOT/pkgbuilds/$package_name/.omarchy/package.json" >/dev/null || fail "$package_name does not track Arch packaging"
 done
@@ -321,4 +334,4 @@ done < <(
   done < <(read_scope "$SCOPE")
 )
 
-echo "PASS: 89-package-base/119-output AArch64 scope, 46 explicit exclusions, upstream pkgrel policy, ARM recipes, and rolling Release are internally consistent"
+echo "PASS: 88-package-base/117-output AArch64 scope, 47 explicit exclusions, upstream pkgrel policy, ARM recipes, and rolling Release are internally consistent"

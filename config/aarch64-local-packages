@@ -9,7 +9,6 @@ ghostty
 google-chrome
 gradle
 heroic-games-launcher-bin
-libretro-blastem
 libretro-desmume
 libretro-kronos
 libretro-ppsspp
@@ -26,3 +25,4 @@ t3code-bin
 voxtype-bin
 zed
 zen-browser-bin
+yt6801-dkms

@@ -83,7 +83,9 @@ prepare() {
 }
 
 build() {
-  make -C libretro-ppsspp/libretro
+  local make_options=()
+  [[ $CARCH != aarch64 ]] || make_options+=(platform=arm64)
+  make -C libretro-ppsspp/libretro "${make_options[@]}"
 }
 
 package() {

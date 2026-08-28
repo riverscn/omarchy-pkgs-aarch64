@@ -82,7 +82,7 @@ build() {
   export CARGO_HOME="$srcdir/cargo-home"
   export CARGO_TARGET_DIR="$srcdir/cargo-target"
   export T3CODE_DESKTOP_OUTPUT_DIR="$srcdir/release"
-  pnpm run dist:desktop:artifact -- \
+  pnpm run dist:desktop:artifact \
     --platform linux --target AppImage --arch arm64 --output-dir "$srcdir/release"
   [[ -f $srcdir/release/$_appimage ]] || {
     echo "T3 Code did not produce the expected ARM64 AppImage" >&2

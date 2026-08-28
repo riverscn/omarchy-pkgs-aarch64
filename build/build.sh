@@ -10,6 +10,8 @@ MIRROR=${MIRROR:-edge}
 DRY_RUN=${DRY_RUN:-false}
 FORCE_EXPLICIT=${FORCE_EXPLICIT:-false}
 REBUILD_EXPLICIT=${REBUILD_EXPLICIT:-false}
+REBUILD_PACKAGES=${REBUILD_PACKAGES:-}
+ALLOW_PARTIAL=${ALLOW_PARTIAL:-false}
 PKGBUILDS_DIR=${PKGBUILDS_DIR:-/pkgbuilds}
 BUILD_OUTPUT_DIR=${BUILD_OUTPUT_DIR:-/build-output/$MIRROR/$ARCH}
 FINAL_OUTPUT_DIR=${FINAL_OUTPUT_DIR:-/pkgs.omarchy.org/$MIRROR/$ARCH}
@@ -460,6 +462,15 @@ check_needs_build() {
   fi
 }
 
+explicit_package_needs_rebuild() {
+  local wanted="$1"
+  local package
+  for package in $REBUILD_PACKAGES; do
+    [[ $package == "$wanted" ]] && return 0
+  done
+  return 1
+}
+
 # Collect packages that should be built for the selected mirror
 collect_packages() {
   packages_for_unscoped_build "$MIRROR"
@@ -504,7 +515,7 @@ if [[ -n "$PACKAGES" ]]; then
       continue
     fi
 
-    if [[ "$REBUILD_EXPLICIT" == true ]] || check_needs_build "$pkg_name"; then
+    if [[ "$REBUILD_EXPLICIT" == true ]] || explicit_package_needs_rebuild "$pkg_name" || check_needs_build "$pkg_name"; then
       PACKAGES_TO_BUILD+=("$pkg_name")
     else
       echo "  + $pkg_name - already up to date"
@@ -640,15 +651,23 @@ echo "  Failed:         $FAILED_COUNT"
 
 # List failures if any
 if [[ -n "$FAILED_PACKAGES" ]]; then
+  failure_report="$BUILD_OUTPUT_DIR/.failed-packages"
+  : > "$failure_report"
   echo ""
   echo "Failed packages:"
   for pkg in $FAILED_PACKAGES; do
     echo "  - $pkg"
+    printf '%s\n' "$pkg" >> "$failure_report"
   done
   echo ""
   echo "==> Some packages failed to build"
+  if [[ "$ALLOW_PARTIAL" == true ]]; then
+    echo "==> Successful packages remain eligible for partial publication"
+    exit 0
+  fi
   exit 1
 fi
 
+rm -f "$BUILD_OUTPUT_DIR/.failed-packages"
 echo ""
 echo "==> All packages processed successfully!"

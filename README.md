@@ -4,11 +4,11 @@ This fork publishes the signed rolling package channel used by AArch64 Omarchy
 systems and by images from
 [`riverscn/omarchy-aarch64-image`](https://github.com/riverscn/omarchy-aarch64-image).
 It tracks `omacom-io/omarchy-pkgs` as its upstream build system and maintains
-the 89 package bases in [`config/aarch64-packages`](config/aarch64-packages).
+the 88 package bases in [`config/aarch64-packages`](config/aarch64-packages).
 These cover every ARM-relevant Omarchy package missing from the system
 repositories, including optional applications and ARM hardware integrations;
 x86-only applications and hardware drivers are intentionally excluded.
-The 46 remaining upstream package bases are classified explicitly in
+The 47 remaining upstream package bases are classified explicitly in
 `config/aarch64-excluded-packages`; the test suite requires the included and
 excluded lists together to cover every `pkgbuilds/` directory.
 
@@ -16,15 +16,17 @@ The source policy is explicit:
 
 - the 26 entries in `config/aarch64-local-packages` follow an ARM vendor
   artifact, AUR source package, Arch packaging source, or downstream source;
-- the 18 entries in `config/aarch64-overlay-packages` follow the official
+- the 19 entries in `config/aarch64-overlay-packages` follow the official
   Omarchy stable version while applying a reproducible AArch64 adaptation;
 - all remaining entries exactly follow the official Omarchy stable recipe;
 - `omarchy` and `omarchy-settings` are built in lockstep from versioned releases
   in [`riverscn/omarchy-aarch64`](https://github.com/riverscn/omarchy-aarch64).
 
-Ollama is split into `ollama` (CPU), `ollama-vulkan` (Apple/Asahi and other ARM
-Vulkan GPUs), `ollama-cuda`, `ollama-cuda-jetpack5`, and
-`ollama-cuda-jetpack6`. There is no ARM ROCm package. T3 Code and Voxtype retain
+Ollama is split into `ollama` (CPU), `ollama-cuda`,
+`ollama-cuda-jetpack5`, and `ollama-cuda-jetpack6`. Ollama v0.33.1's official
+Linux ARM64 archive does not contain the Vulkan backend, and its release matrix
+only builds Vulkan for amd64, so the repository does not advertise a broken
+Apple/Asahi or generic ARM Vulkan package. There is no ARM ROCm package. T3 Code and Voxtype retain
 the exact names Omarchy requests but are compiled from source because their
 upstream Linux binary packages are x86-only. Heroic retains the package name
 Omarchy requests but is built from tagged source with the official arm64 game
@@ -44,6 +46,10 @@ longer referenced by the database. Unchanged package archives are neither
 downloaded nor uploaded again. The stable `releases/latest/download` URL never
 changes, so existing pacman configuration and installed systems continue to
 receive packages through normal updates; an ISO reinstall is not required.
+Successful archives are still published when another package fails. Existing
+failed packages remain at their last published version, new failed packages are
+marked pending, and the recorded failure set is forcibly retried by the next
+workflow run.
 
 The latest Release is directly consumable as a pacman repository. Bootstrap
 its public key once, then install the keyring package so future key updates are

@@ -36,7 +36,6 @@ depends=(
   'libcap'
   'libdrm'
   'libevdev'
-  'libmfx'
   'libnotify'
   'libpipewire'
   'libpulse'
@@ -54,6 +53,7 @@ depends=(
   'vulkan-icd-loader'
   'which'
 )
+depends_x86_64=('libmfx')
 
 makedepends=(
   'appstream'

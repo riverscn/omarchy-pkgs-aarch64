@@ -39,7 +39,7 @@ depends=(
   'systemd-libs'
   'which'
 )
-makedepends=('corepack' 'nodejs' 'python')
+makedepends=('nodejs' 'pnpm' 'python')
 provides=("heroic-games-launcher=$pkgver")
 conflicts=('heroic-games-launcher')
 options=('!strip' '!debug')
@@ -80,13 +80,13 @@ prepare() {
   install -Dm644 "$srcdir/GalaxyCommunication-${_comet_tag}.exe" public/bin/x64/win32/GalaxyCommunication.exe
   install -Dm644 "$srcdir/EpicGamesLauncher-${_epic_integration_tag}.exe" public/bin/x64/win32/EpicGamesLauncher.exe
 
-  HUSKY=0 corepack pnpm install --frozen-lockfile
+  HUSKY=0 pnpm install --frozen-lockfile
 }
 
 build() {
   cd "HeroicGamesLauncher-$pkgver"
-  corepack pnpm exec electron-vite build
-  corepack pnpm exec electron-builder --linux pacman --arm64 --publish never
+  pnpm exec electron-vite build
+  pnpm exec electron-builder --linux pacman --arm64 --publish never
 }
 
 package() {

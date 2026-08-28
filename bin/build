@@ -14,6 +14,8 @@ print_header "Omarchy Package Builder"
 DRY_RUN=false
 FORCE_EXPLICIT=false
 REBUILD_EXPLICIT=false
+REBUILD_PACKAGES=""
+ALLOW_PARTIAL=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -53,6 +55,19 @@ while [[ $# -gt 0 ]]; do
     REBUILD_EXPLICIT=true
     shift
     ;;
+  --rebuild-package)
+    shift
+    REBUILD_PACKAGES=""
+    while [[ $# -gt 0 && ! "$1" =~ ^-- ]]; do
+      REBUILD_PACKAGES="$REBUILD_PACKAGES $1"
+      shift
+    done
+    REBUILD_PACKAGES="${REBUILD_PACKAGES# }"
+    ;;
+  --allow-partial)
+    ALLOW_PARTIAL=true
+    shift
+    ;;
   -h | --help)
     echo "Usage: $0 [OPTIONS]"
     echo ""
@@ -62,6 +77,8 @@ while [[ $# -gt 0 ]]; do
     echo "  --package <names>    Build only the specified package(s) (space-separated)"
     echo "  --force-explicit     Ignore release-ring policy for explicitly named packages"
     echo "  --rebuild-explicit   Rebuild explicitly named packages even at the same version"
+    echo "  --rebuild-package    Rebuild only these members of --package at the same version"
+    echo "  --allow-partial      Return success after recording failed explicitly named packages"
     echo "  --dry-run            Show what would build without running makepkg"
     echo "  -h, --help           Show this help message"
     echo ""
@@ -98,6 +115,20 @@ if [[ "$REBUILD_EXPLICIT" == true && -z "$PACKAGES" ]]; then
   print_error "--rebuild-explicit requires --package"
   exit 1
 fi
+if [[ -n "$REBUILD_PACKAGES" && -z "$PACKAGES" ]]; then
+  print_error "--rebuild-package requires --package"
+  exit 1
+fi
+for rebuild_package in $REBUILD_PACKAGES; do
+  if ! grep -Fqw "$rebuild_package" <<<"$PACKAGES"; then
+    print_error "--rebuild-package target is not present in --package: $rebuild_package"
+    exit 1
+  fi
+done
+if [[ "$ALLOW_PARTIAL" == true && -z "$PACKAGES" ]]; then
+  print_error "--allow-partial requires --package"
+  exit 1
+fi
 
 # Show target architecture and mirror after parsing args
 print_info "Target architecture: $ARCH"
@@ -112,6 +143,8 @@ if [[ "$DRY_RUN" == true ]]; then
     PACKAGES="$PACKAGES" \
     FORCE_EXPLICIT="$FORCE_EXPLICIT" \
     REBUILD_EXPLICIT="$REBUILD_EXPLICIT" \
+    REBUILD_PACKAGES="$REBUILD_PACKAGES" \
+    ALLOW_PARTIAL="$ALLOW_PARTIAL" \
     DRY_RUN=true \
     PKGBUILDS_DIR="$PKGBUILDS_DIR" \
     BUILD_OUTPUT_DIR="$BUILD_OUTPUT_DIR" \
@@ -142,7 +175,8 @@ fi
 
 # Clean build-output directory to start fresh
 print_info "Cleaning build workspace..."
-rm -rf "$BUILD_OUTPUT_DIR"/*
+rm -rf -- "${BUILD_OUTPUT_DIR:?}"/*
+rm -f "$BUILD_OUTPUT_DIR/.complete" "$BUILD_OUTPUT_DIR/.failed-packages"
 mkdir -p "$BUILD_OUTPUT_DIR"
 
 # Show package info
@@ -174,6 +208,8 @@ DOCKER_ARGS=(
   -e PACKAGES="$PACKAGES"
   -e FORCE_EXPLICIT="$FORCE_EXPLICIT"
   -e REBUILD_EXPLICIT="$REBUILD_EXPLICIT"
+  -e REBUILD_PACKAGES="$REBUILD_PACKAGES"
+  -e ALLOW_PARTIAL="$ALLOW_PARTIAL"
   -e SRCDEST=/srcdest
   -v "$BUILD_ROOT/build-output:/build-output"
   -v "$REPO_ROOT:/pkgs.omarchy.org"

@@ -16,6 +16,7 @@ on:
       - bin/sign
       - bin/sign-database
       - bin/update-repo
+      - bin/write-aarch64-release-state
       - build/**
       - config/aarch64-*
       - helpers/**
@@ -65,7 +66,22 @@ jobs:
           set -euo pipefail
           published="$RUNNER_TEMP/published-version-set.json"
           url="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/repository-version-set.json"
-          if [[ "$FORCE" == "true" ]] || ! curl -fsSL --retry 3 -o "$published" "$url"; then
+          : > aarch64-retry-packages
+          if curl -fsSL --retry 3 -o "$published" "$url"; then
+            while IFS= read -r package; do
+              if grep -Fxq "$package" config/aarch64-packages; then
+                printf '%s\n' "$package" >> aarch64-retry-packages
+              fi
+            done < <(jq -r '.failed_packages[]?' "$published")
+            published_available=true
+          else
+            published_available=false
+          fi
+
+          if [[ "$FORCE" == "true" ]]; then
+            sed -E '/^[[:space:]]*(#|$)/d' config/aarch64-packages > aarch64-retry-packages
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$published_available" != true ]]; then
             echo "should_build=true" >> "$GITHUB_OUTPUT"
           elif cmp -s repository-version-set.json "$published"; then
             echo "should_build=false" >> "$GITHUB_OUTPUT"
@@ -78,7 +94,9 @@ jobs:
         if: steps.plan.outputs.should_build == 'true'
         with:
           name: aarch64-version-set
-          path: repository-version-set.json
+          path: |
+            repository-version-set.json
+            aarch64-retry-packages
           retention-days: 1
 
   build:
@@ -86,6 +104,8 @@ jobs:
     if: needs.plan.outputs.should_build == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 360
+    outputs:
+      should_publish: ${{ steps.result.outputs.should_publish }}
     steps:
       - uses: actions/checkout@v7
 
@@ -104,8 +124,40 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t packages < <(sed -E '/^[[:space:]]*(#|$)/d' config/aarch64-packages)
-          ./bin/repo build --arch aarch64 --mirror stable --force-explicit --package "${packages[@]}"
+          mapfile -t retries < <(sed -E '/^[[:space:]]*(#|$)/d' aarch64-retry-packages)
+          build_args=(--arch aarch64 --mirror stable --force-explicit --allow-partial --package "${packages[@]}")
+          (( ${#retries[@]} == 0 )) || build_args+=(--rebuild-package "${retries[@]}")
+          ./bin/repo build "${build_args[@]}"
           touch build-output/stable/aarch64/.complete
+
+      - name: Summarize the partial build
+        id: result
+        run: |
+          set -euo pipefail
+          output=build-output/stable/aarch64
+          shopt -s nullglob
+          archives=("$output"/*.pkg.tar.zst)
+          failures=()
+          [[ ! -s "$output/.failed-packages" ]] || mapfile -t failures < "$output/.failed-packages"
+
+          if (( ${#failures[@]} > 0 )); then
+            echo "::warning title=AArch64 partial build::${#failures[@]} package base(s) failed; ${#archives[@]} successful archive(s) will still be published."
+            {
+              echo "### Partial AArch64 build"
+              echo
+              echo "Successful archives: ${#archives[@]}"
+              echo
+              echo "Failed package bases (kept at their previous published versions and retried next run):"
+              printf -- '- `%s`\n' "${failures[@]}"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if (( ${#archives[@]} > 0 || ${#failures[@]} == 0 )); then
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            echo "No package was built successfully; leaving the current rolling Release untouched."
+          fi
 
       - uses: actions/upload-artifact@v7
         with:
@@ -118,7 +170,7 @@ jobs:
 
   publish:
     needs: [plan, build]
-    if: needs.plan.outputs.should_build == 'true'
+    if: needs.plan.outputs.should_build == 'true' && needs.build.outputs.should_publish == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 360
     environment: release

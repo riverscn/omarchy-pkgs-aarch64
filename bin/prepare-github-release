@@ -33,7 +33,10 @@ cp --remove-destination "$repo/omarchy.db.tar.zst" "$repo/omarchy.db"
 cp --remove-destination "$repo/omarchy.files.tar.zst" "$repo/omarchy.files"
 cp --remove-destination "$repo/omarchy.db.tar.zst.sig" "$repo/omarchy.db.sig"
 cp --remove-destination "$repo/omarchy.files.tar.zst.sig" "$repo/omarchy.files.sig"
-cp "$VERSION_SET" "$repo/repository-version-set.json"
+"$BUILD_ROOT/bin/write-aarch64-release-state" \
+  --version-set "$VERSION_SET" \
+  --failure-report "$BUILD_ROOT/build-output/stable/aarch64/.failed-packages" \
+  --output "$repo/repository-version-set.json"
 
 public_key="$BUILD_ROOT/pkgbuilds/omarchy-aarch64-keyring/omarchy-aarch64.gpg"
 cp "$public_key" "$repo/omarchy-aarch64.gpg"

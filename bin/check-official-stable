@@ -117,6 +117,7 @@ input_digest=$(
       "$BUILD_ROOT/bin/sign" \
       "$BUILD_ROOT/bin/sign-database" \
       "$BUILD_ROOT/bin/update-repo" \
+      "$BUILD_ROOT/bin/write-aarch64-release-state" \
       "$BUILD_ROOT/.github/workflows/release-aarch64.yml" \
       "$SCOPE" "$LOCAL_PACKAGES" "$OVERLAY_PACKAGES"
     while IFS= read -r package; do

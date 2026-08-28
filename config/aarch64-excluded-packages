@@ -44,6 +44,10 @@ spotify
 t3code-patched-bin
 tmog-bin
 
+# RetroArch cores whose upstream build matrix is still x86-only. RetroArch and
+# ARM-capable alternatives remain available; only this core is excluded.
+libretro-blastem
+
 # x86 platform hardware, firmware, multilib, or kernel packages. These target
 # Intel/AMD/NVIDIA PCs or Intel MacBooks rather than ARM hardware.
 asusctl

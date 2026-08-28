@@ -93,7 +93,6 @@ xpadneo-dkms
 yt6801-dkms
 
 # RetroArch cores missing from Arch Linux ARM or maintained by Omarchy
-libretro-blastem
 libretro-cap32-git
 libretro-database-git
 libretro-desmume

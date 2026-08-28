@@ -7,6 +7,7 @@ scope=${PACKAGE_SCOPE:-/config/aarch64-packages}
 public_key=${PUBLIC_KEY:-/public/omarchy-aarch64.gpg}
 baseline_sums=${BASELINE_SUMS:-/repository/.baseline-SHA256SUMS}
 remote_server=${REMOTE_REPOSITORY_SERVER:-}
+release_state=${RELEASE_STATE:-$repository/repository-version-set.json}
 
 baseline_has_asset() {
   local wanted="$1"
@@ -63,13 +64,29 @@ fi
 pacman -Syy --noconfirm
 
 mapfile -t packages < <(sed -E '/^[[:space:]]*(#|$)/d' "$scope")
+declare -A failed_packages=()
+if [[ -f $release_state ]]; then
+  while IFS= read -r package; do
+    [[ -n $package ]] && failed_packages["$package"]=1
+  done < <(jq -r '.failed_packages[]?' "$release_state")
+fi
+
+available_packages=()
 for package in "${packages[@]}"; do
-  pacman -Si "$package" >/dev/null || {
+  if pacman -Si "$package" >/dev/null; then
+    available_packages+=("$package")
+  elif [[ -n ${failed_packages[$package]:-} ]]; then
+    echo "WARNING: newly pending package is not yet published: $package" >&2
+  else
     echo "ERROR: pacman cannot resolve scoped package: $package" >&2
     exit 1
-  }
+  fi
 done
 
 # Resolve the complete transaction without installing it. This catches missing
 # dependencies while keeping validation fast and side-effect free.
-pacman -Sp --noconfirm "${packages[@]}" >/dev/null
+(( ${#available_packages[@]} > 0 )) || {
+  echo "ERROR: repository contains no resolvable scoped packages" >&2
+  exit 1
+}
+pacman -Sp --noconfirm "${available_packages[@]}" >/dev/null
