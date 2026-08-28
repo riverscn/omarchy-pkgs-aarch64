@@ -159,11 +159,16 @@ jobs:
             echo "No package was built successfully; leaving the current rolling Release untouched."
           fi
 
+      # GitHub artifacts reject ':' in individual filenames, while pacman uses
+      # it for package epochs (for example asdcontrol-1:0.6.0-1-...). Wrap the
+      # Linux repository payload in an uncompressed tar so names remain exact.
+      - name: Pack changed packages for artifact transfer
+        run: tar -cf aarch64-changed-packages.tar -C build-output/stable/aarch64 .
+
       - uses: actions/upload-artifact@v7
         with:
           name: aarch64-changed-packages
-          path: build-output/stable/aarch64
-          include-hidden-files: true
+          path: aarch64-changed-packages.tar
           compression-level: 0
           retention-days: 1
           if-no-files-found: error
@@ -186,7 +191,13 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: aarch64-changed-packages
-          path: build-output/stable/aarch64
+          path: ${{ runner.temp }}/aarch64-changed-packages
+
+      - name: Restore changed package filenames
+        run: |
+          mkdir -p build-output/stable/aarch64
+          tar -xf "$RUNNER_TEMP/aarch64-changed-packages/aarch64-changed-packages.tar" \
+            -C build-output/stable/aarch64
 
       - name: Seed the published repository database
         env:

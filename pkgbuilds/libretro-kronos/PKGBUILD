@@ -22,7 +22,7 @@ b2sums=('d36d90ce48bcaadd386b7691b2f86223aa23b40dd34ecef363643b8404ffa4f6539b423
 
 build() {
   local make_options=()
-  [[ $CARCH != aarch64 ]] || make_options+=(platform=arm64)
+  [[ $CARCH != aarch64 ]] || make_options+=(platform=arm64 HAVE_CDROM=1)
   make -C libretro-yabause/yabause/src/libretro "${make_options[@]}"
 }
 

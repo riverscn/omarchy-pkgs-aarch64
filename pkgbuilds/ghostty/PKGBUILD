@@ -24,24 +24,32 @@ depends=(bzip2
          pixman
          wayland libwayland-client.so
          zlib)
-makedepends=(blueprint-compiler
-             zig)
-makedepends_x86_64=(pandoc-cli)
+makedepends=(blueprint-compiler)
+makedepends_x86_64=(pandoc-cli zig)
+makedepends_i686=(pandoc-cli zig)
 optdepends=()
+_zig_version=0.15.2
 _archive="$pkgname-$pkgver"
 source=("$url/archive/v$pkgver/$_archive.tar.gz")
+source_aarch64=("https://ziglang.org/download/$_zig_version/zig-aarch64-linux-$_zig_version.tar.xz")
 sha256sums=('265837d3026b433f0e6b4e49d43153b915b0a19513f7edd8a8e693c559bd415b')
+sha256sums_aarch64=('958ed7d1e00d0ea76590d27666efbf7a932281b3d7ba0c6b01b0ff26498f667f')
 
 prepare() {
 	cd "$_archive"
-	ZIG_GLOBAL_CACHE_DIR="$srcdir/zig-global-cache/" ./nix/build-support/fetch-zig-cache.sh
+	local zig_path=$PATH
+	[[ $CARCH != aarch64 ]] || zig_path="$srcdir/zig-aarch64-linux-$_zig_version:$PATH"
+	PATH="$zig_path" ZIG_GLOBAL_CACHE_DIR="$srcdir/zig-global-cache/" \
+		./nix/build-support/fetch-zig-cache.sh
 }
 
 build() {
 	cd "$_archive"
+	local zig_cmd=zig
+	[[ $CARCH != aarch64 ]] || zig_cmd="$srcdir/zig-aarch64-linux-$_zig_version/zig"
 	local docs_option=-Demit-docs
 	[[ $CARCH != aarch64 ]] || docs_option=-Demit-docs=false
-	DESTDIR=build zig build \
+	DESTDIR=build "$zig_cmd" build \
 		--summary all \
 		--prefix "/usr" \
 		--system "$srcdir/zig-global-cache/p" \

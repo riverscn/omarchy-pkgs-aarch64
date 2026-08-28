@@ -7,4 +7,5 @@ sed -i \
   PKGBUILD
 
 sed -i "/^pkgdesc=/a provides=('voxtype')\nconflicts=('voxtype')" PKGBUILD
-sed -i 's|"$pkgname-$pkgver.tar.gz.asc::https://github.com/peteonrails/voxtype/releases/download/v$pkgver/$pkgname-$pkgver.tar.gz.asc"|"voxtype-$pkgver.tar.gz.asc::https://github.com/peteonrails/voxtype/releases/download/v$pkgver/voxtype-$pkgver.tar.gz.asc"|' PKGBUILD
+sed -i '/^source=(/i _archive=voxtype-$pkgver' PKGBUILD
+sed -i 's/\$pkgname-\$pkgver/\$_archive/g' PKGBUILD

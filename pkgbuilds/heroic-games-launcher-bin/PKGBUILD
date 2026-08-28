@@ -39,7 +39,7 @@ depends=(
   'systemd-libs'
   'which'
 )
-makedepends=('nodejs' 'pnpm' 'python')
+makedepends=('libxcrypt-compat' 'nodejs' 'pnpm' 'python')
 provides=("heroic-games-launcher=$pkgver")
 conflicts=('heroic-games-launcher')
 options=('!strip' '!debug')

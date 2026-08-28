@@ -41,6 +41,19 @@ cmp -s "$desired_state" "$complete_state" || {
   exit 1
 }
 
+# Pacman writes epochs with ':' in archive filenames. GitHub artifact uploads
+# reject those names individually, so the workflow transfers a tar wrapper.
+transfer_source="$work/transfer-source"
+transfer_restore="$work/transfer-restore"
+mkdir -p "$transfer_source" "$transfer_restore"
+touch "$transfer_source/asdcontrol-1:0.6.0-1-aarch64.pkg.tar.zst"
+tar -cf "$work/aarch64-changed-packages.tar" -C "$transfer_source" .
+tar -xf "$work/aarch64-changed-packages.tar" -C "$transfer_restore"
+[[ -f "$transfer_restore/asdcontrol-1:0.6.0-1-aarch64.pkg.tar.zst" ]] || {
+  echo "artifact transfer did not preserve a pacman epoch filename" >&2
+  exit 1
+}
+
 old_package=old-package-1.0-1-aarch64.pkg.tar.zst
 new_package=new-package-2.0-1-aarch64.pkg.tar.zst
 stale_package=stale-package-1.0-1-aarch64.pkg.tar.zst

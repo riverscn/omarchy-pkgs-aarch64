@@ -260,8 +260,8 @@ for helper in legendary gogdl nile comet GalaxyCommunication EpicGamesLauncher; 
 done
 grep -Fq -- 'electron-builder --linux pacman --arm64' "$ROOT/pkgbuilds/heroic-games-launcher-bin/PKGBUILD" ||
   fail "Heroic does not produce an ARM64 Linux package"
-grep -Fq "makedepends=('nodejs' 'pnpm' 'python')" "$ROOT/pkgbuilds/heroic-games-launcher-bin/PKGBUILD" ||
-  fail "Heroic lacks the pnpm executable used by electron-builder"
+grep -Fq "makedepends=('libxcrypt-compat' 'nodejs' 'pnpm' 'python')" "$ROOT/pkgbuilds/heroic-games-launcher-bin/PKGBUILD" ||
+  fail "Heroic lacks pnpm or the legacy libcrypt ABI used by electron-builder's ARM64 FPM"
 
 rustdesk_srcinfo=$(<"$TEST_TMP/rustdesk.srcinfo")
 grep -Fq 'rustdesk-1.4.9-aarch64.deb' <<<"$rustdesk_srcinfo" || fail "RustDesk lacks its official AArch64 artifact"
@@ -277,7 +277,11 @@ grep -Fq 'pkgver=1.0.34' "$ROOT/pkgbuilds/yt6801-dkms/PKGBUILD" || fail "yt6801 
 grep -Fq "checkdepends=('dkms' 'fakeroot')" "$ROOT/pkgbuilds/xpadneo-dkms/PKGBUILD" || fail "xpadneo contains a kernel-header placeholder"
 grep -Fq 'depends_x86_64=(' "$ROOT/pkgbuilds/sunshine/PKGBUILD" || fail "Sunshine does not isolate Intel MFX to x86_64"
 grep -Fq 'depends_aarch64=(' "$ROOT/pkgbuilds/cursor-bin/PKGBUILD" || fail "Cursor does not use its bundled ARM64 Electron runtime"
-grep -Fq 'voxtype-$pkgver.tar.gz.asc::' "$ROOT/pkgbuilds/voxtype-bin/PKGBUILD" || fail "Voxtype signature asset follows the renamed package instead of upstream"
+grep -Fq '_zig_version=0.15.2' "$ROOT/pkgbuilds/ghostty/PKGBUILD" || fail "Ghostty does not pin its declared Zig version on AArch64"
+grep -Fq '_archive=voxtype-$pkgver' "$ROOT/pkgbuilds/voxtype-bin/PKGBUILD" || fail "Voxtype source and detached signature do not share the upstream archive name"
+grep -Fq 'HAVE_CDROM=1' "$ROOT/pkgbuilds/libretro-kronos/PKGBUILD" || fail "Kronos ARM64 omits Linux libretro-common sources"
+grep -Fq 'git+https://github.com/bylaws/libadrenotools.git' "$ROOT/pkgbuilds/libretro-ppsspp/PKGBUILD" || fail "PPSSPP ARM64 lacks its required AdrenoTools submodule"
+grep -Fq 'CARGO_TARGET_DIR' "$ROOT/pkgbuilds/t3code-bin/PKGBUILD" && fail "T3 Code redirects Cargo away from the output path verified by upstream"
 grep -Fq 'platform=arm64-unix' "$ROOT/pkgbuilds/libretro-desmume/PKGBUILD" || fail "DeSmuME lacks its ARM64 platform"
 grep -Fq 'platform=arm64' "$ROOT/pkgbuilds/libretro-kronos/PKGBUILD" || fail "Kronos lacks its ARM64 platform"
 grep -Fq 'platform=arm64' "$ROOT/pkgbuilds/libretro-ppsspp/PKGBUILD" || fail "PPSSPP lacks its ARM64 platform"
@@ -307,6 +311,8 @@ grep -Fq './bin/publish-github-release' "$ROOT/.github/workflows/release-aarch64
 grep -Fq 'aarch64-changed-packages' "$ROOT/.github/workflows/release-aarch64.yml" || fail "workflow transfers more than changed packages"
 grep -Fq -- '--allow-partial' "$ROOT/.github/workflows/release-aarch64.yml" || fail "workflow blocks all publication after one package failure"
 grep -Fq 'failed_packages' "$ROOT/bin/write-aarch64-release-state" || fail "partial releases do not remain pending for retry"
+grep -Fq 'tar -cf aarch64-changed-packages.tar' "$ROOT/.github/workflows/release-aarch64.yml" || fail "workflow exposes pacman epoch colons to GitHub artifact validation"
+grep -Fq 'tar -xf "$RUNNER_TEMP/aarch64-changed-packages/aarch64-changed-packages.tar"' "$ROOT/.github/workflows/release-aarch64.yml" || fail "workflow does not restore exact pacman filenames after artifact transfer"
 grep -Fq 'release_tag=${release_tag:-aarch64-stable}' "$ROOT/bin/publish-github-release" || fail "publisher lacks a permanent tag"
 grep -Fq 'gh release delete-asset' "$ROOT/bin/publish-github-release" || fail "publisher does not prune stale assets"
 grep -Fq 'gh release delete "$old_tag"' "$ROOT/bin/publish-github-release" || fail "publisher does not prune old Releases"
