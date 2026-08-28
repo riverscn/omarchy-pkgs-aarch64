@@ -5,6 +5,7 @@ BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
 source "$BUILD_ROOT/helpers/message-helpers.sh"
 source "$BUILD_ROOT/helpers/docker-helpers.sh"
 source "$BUILD_ROOT/helpers/paths.sh"
+source "$BUILD_ROOT/helpers/lock-helpers.sh"
 
 print_header "Remove Package"
 
@@ -19,6 +20,7 @@ while [[ $# -gt 0 ]]; do
     ;;
   --mirror)
     MIRROR="$2"
+    require_valid_mirror "$MIRROR"
     update_arch_paths
     shift 2
     ;;
@@ -27,7 +29,7 @@ while [[ $# -gt 0 ]]; do
     echo ""
     echo "Options:"
     echo "  --arch <arch>      Target architecture (x86_64 or aarch64, default: x86_64)"
-    echo "  --mirror <mirror>  Mirror to use (edge or stable, default: edge)"
+    echo "  --mirror <mirror>  Mirror to use (edge, rc, or stable, default: edge)"
     echo "  -h, --help         Show this help message"
     exit 0
     ;;
@@ -87,7 +89,10 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
 fi
 
 # Build/update the Docker image (always use x86_64 for removal - it's architecture independent)
-build_docker_image "$BUILD_DIR" "x86_64" "$MIRROR"
+# repo-remove is mirror-independent — always use the edge x86_64 image
+build_docker_image "$BUILD_DIR" "x86_64" "edge"
+
+acquire_release_lock || exit 1
 
 print_info "Removing package..."
 
@@ -98,9 +103,9 @@ make_dir_writable "$REPO_DIR"
 docker run --rm --platform linux/amd64 \
   -e ARCH="$ARCH" \
   -e MIRROR="$MIRROR" \
-  -v "$BUILD_ROOT/pkgs.omarchy.org:/pkgs.omarchy.org" \
+  -v "$REPO_ROOT:/pkgs.omarchy.org" \
   -v "$BUILD_DIR:/build:ro" \
-  omarchy-pkg-builder:latest-x86_64-$MIRROR /build/remove-package.sh "$PACKAGE_NAME"
+  omarchy-pkg-builder:latest-x86_64-edge /build/remove-package.sh "$PACKAGE_NAME"
 
 RESULT=$?
 

@@ -35,3 +35,4 @@ pkgbuilds/yay/yay/
 .srcdest/
 repository-version-set.json
 .repo-host
+.worktrees/

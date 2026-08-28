@@ -8,7 +8,7 @@ the 89 package bases in [`config/aarch64-packages`](config/aarch64-packages).
 These cover every ARM-relevant Omarchy package missing from the system
 repositories, including optional applications and ARM hardware integrations;
 x86-only applications and hardware drivers are intentionally excluded.
-The 45 remaining upstream package bases are classified explicitly in
+The 46 remaining upstream package bases are classified explicitly in
 `config/aarch64-excluded-packages`; the test suite requires the included and
 excluded lists together to cover every `pkgbuilds/` directory.
 
@@ -101,9 +101,19 @@ Each package lives directly under `pkgbuilds/<package>/` and carries Omarchy met
 
 The filesystem no longer encodes release policy. Instead:
 
-- all packages build for `edge`
-- packages with `"release_ring": "fast"` also build directly for `stable`
-- all other packages reach `stable` by promoting tested edge artifacts with `bin/repo migrate`
+- there are three channels forming a forward-only pipeline: `edge` → `rc` → `stable`
+- all packages build for `edge` unless their metadata pins `channels`
+- packages with `"release_ring": "fast"` build natively for **all three** channels —
+  each in its own image against its own base mirror, because rc's Arch snapshot may sit
+  anywhere between stable's and edge's, so an artifact linked against stable's libraries
+  is not necessarily correct for rc
+- a release train opens by advancing edge into rc (`bin/repo advance --from edge --to rc`)
+  and ships by promoting rc into stable (`bin/repo advance --from rc --to stable`)
+- the release pair (`omarchy`, `omarchy-settings`) is marked `"pinned": true`: its version
+  is set per release on the standing `rc` branch, so only a build from that branch's worktree
+  (`OMARCHY_RC_PINS=1`, which `omarchy-release rc` sets) may build it for rc — master's
+  shipped pins can never overwrite an in-flight RC. The dev pair
+  (`omarchy-dev`, `omarchy-settings-dev`) is pinned to `edge`
 - AUR sync behavior is controlled by `source`, `sync`, `aur`, patches, and hooks in `.omarchy/`
 - packages can opt out of unscoped builds with `skip_build`; explicit `--package` builds remain available
 - packages that follow a vendor release feed instead of the AUR carry an `.omarchy/upstream.sh` hook
@@ -126,13 +136,41 @@ docker run --rm --platform linux/arm64 alpine:latest uname -m
 
 ## Quick Start
 
+### Cutting an Omarchy release
+
+`bin/omarchy-release` is the front door. A release train has three human
+moments, each one command — and bare `omarchy-release` observes reality
+(branches, pins, published channels, tags) and walks you to the next one:
+
+```bash
+bin/omarchy-release              # shepherd: status + guided next step
+bin/omarchy-release start 4.0.2  # open the train: branch v4-0-2 + staging PR
+bin/omarchy-release pick         # choose merged PRs to cherry-pick (multi-select)
+bin/omarchy-release rc           # publish the next 4.0.2rcN to the rc channel
+bin/omarchy-release ship         # final pins, promote rc → stable, tag,
+                                 # GitHub release, ISO, website — one swoop
+bin/omarchy-release doctor       # verify credentials/connections up front
+```
+
+Versions are inferred from branch names (`v4-0-2` ⇒ `4.0.2rcN` ⇒ tag
+`v4.0.2`); `start` is the only place a version is typed. Every command is
+idempotent — re-runs skip whatever is already done. `ship` refuses to promote
+a commit no RC was cut from.
+
 ### Full release
 
-Promote packages from edge build, then sync stable:
+Ship the tested rc channel to stable (copies packages + signatures, then
+cleans, rebuilds the database, and syncs):
 
 ```
-bin/repo migrate
-bin/repo sync --mirror stable
+bin/repo advance --from rc --to stable
+```
+
+Open a release train that ships new edge packages by carrying edge into rc
+first:
+
+```
+bin/repo advance --from edge --to rc
 ```
 
 ### Complete Workflow
@@ -196,10 +234,12 @@ refuses to run unscoped when that database is missing. Unscoped builds belong on
 the repository host, where `bin/repo release` does the same job against a real
 database.
 
-Every other command in `bin/` — `sign`, `promote`, `update`, `clean`, `migrate`,
-`remove`, `sync`, `release` — works on the published tree directly and is meant
-to run on the repository host. `build`, `push` and `deploy` are the three that
-may run elsewhere.
+Every other command in `bin/` — `sign`, `promote`, `update`, `clean`,
+`advance`, `remove`, `sync`, `release` — works on the published tree. Run them
+from anywhere: with a repository host configured they forward over ssh and run
+there (see [Build trigger and the build host](#build-trigger-and-the-build-host)),
+and `--local` forces execution on the current machine. `build`, `push` and
+`deploy` are the three meant to run on a build machine rather than the host.
 
 ## Commands
 
@@ -207,7 +247,8 @@ may run elsewhere.
 
 These flags can be used with all commands:
 
-- `--mirror <edge|stable>`: Selects the repository mirror (default: `edge`).
+- `--mirror <edge|rc|stable>`: Selects the channel (default: `edge`).
+- `--local`: Run on this machine instead of forwarding to the repository host.
 - `--arch <x86_64|aarch64>`: Selects the target architecture (default: `x86_64`).
 
 ### Build
@@ -215,7 +256,8 @@ These flags can be used with all commands:
 ```bash
 bin/repo build                                   # All packages (x86_64, edge)
 bin/repo build --arch aarch64                    # ARM64
-bin/repo build --mirror stable                   # Stable mirror
+bin/repo build --mirror rc                       # Release-candidate channel
+bin/repo build --mirror stable                   # Stable channel
 bin/repo build --package yay cursor-bin          # Specific packages
 bin/repo build --dry-run                         # Show what would build
 ```
@@ -446,9 +488,13 @@ complete release and increments its last numeric component.
 ### Other
 
 ```bash
-bin/repo migrate --arch x86_64       # Promote tested edge artifacts -> stable, then clean + update
-bin/repo migrate --package <name>    # Promote a single package -> stable
-bin/repo migrate --dry-run           # Preview migration and cleanup
+bin/repo advance --from rc --to stable            # Ship the tested rc channel to stable
+bin/repo advance --from edge --to rc              # Open a train: carry edge forward into rc
+bin/repo advance --from edge --to rc --package x  # Deliberate single-package advance
+bin/repo advance --from rc --to stable --dry-run  # Preview without changing files
+bin/repo bootstrap-rc                             # One-time initial rc seed from stable
+bin/repo timers                      # Timer schedule, last runs, queues, backoff, lock
+bin/omarchy-release                  # Release front door (start / pick / rc / ship)
 bin/repo list                        # List package metadata
 bin/repo deploy                      # Build locally, then publish from the host
 bin/repo push                        # Upload local builds to the host and publish
@@ -478,11 +524,18 @@ bin/package-worktree v4l2-relayd     # Create upstream/patched/current scratch w
 ## Cutting an Omarchy Release
 
 The `omarchy` and `omarchy-settings` packages are released as a pair, always
-built from the same upstream commit of basecamp/omarchy. `bin/omarchy-pkgs`
-rewrites both PKGBUILDs in lockstep (same `_tag`/`_commit`/`pkgver`/
-`sha256sums`), validates ordering with `vercmp`, commits, and pushes the
-current branch. On master it pokes the build host directly; from any other
-branch add `--pr` to open the release PR — merging it is what goes live.
+built from the same upstream commit of basecamp/omarchy.
+
+**Use `bin/omarchy-release`** (see [Cutting an Omarchy release](#cutting-an-omarchy-release)
+in Quick Start) — it drives the whole train across all four repositories and
+calls the pin engine below for you.
+
+`bin/omarchy-pkgs` is that engine, available directly for one-off pins and
+debugging. It rewrites both PKGBUILDs in lockstep (same `_tag`/`_commit`/
+`pkgver`/`sha256sums`), validates ordering with `vercmp`, commits, and pushes
+the current branch. Driven by `omarchy-release` it pins to the release branch
+on the `rc` branch and orders against the rc channel; invoked directly it
+targets the current branch and edge.
 
 ```bash
 bin/omarchy-pkgs release v4.0.0          # Final release from the upstream v4.0.0 tag
@@ -512,25 +565,63 @@ bin/omarchy-pkgs self-test               # Version normalization + ordering test
 
 ### Where releases land
 
-- **RCs build for edge only.** Stable never sees an rc version. Edge testers
-  upgrade rc1 → rc2 → final naturally.
-- **Finals build for edge first.** After the edge build completes and you have
-  verified it, promote the exact tested artifacts to stable:
+- **RCs build for the rc channel.** RC testers and RC ISO installs run the real
+  `omarchy` package against the package set stable users will actually get.
+  Stable never sees an rc version; rc testers upgrade rc1 → rc2 → final
+  naturally.
+- **Finals build into rc, then the whole channel promotes.** After testing, the
+  ship step promotes the exact tested artifacts (packages and signatures)
+  forward:
 
 ```bash
-bin/repo migrate --package omarchy && bin/repo migrate --package omarchy-settings
-bin/repo sync --mirror stable
+bin/repo advance --from rc --to stable
 ```
 
 Neither package is on the `fast` ring, and `bin/omarchy-pkgs` never touches
 stable — promotion is always this explicit step.
 
-### Build trigger
+### Build trigger and the build host
 
-After pushing, the command triggers the build host over ssh when
-`OMARCHY_REPO_HOST` is set (env var, or a hostname in the git-ignored
-`.repo-host` file). Without it, the 6-hourly auto-release timer picks up the
-change on its own.
+Release commands run from anywhere. `bin/repo` is a **remote control**: with a
+repository host configured, every command that operates on the published tree
+(`release`, `build`, `sign`, `promote`, `update`, `clean`, `advance`,
+`bootstrap-rc`, `remove`, `sync`, `migrate`) executes ON the host over ssh —
+the exact same code, run where the tree lives, so ssh'ing in and running the
+same commands by hand behaves identically. Pass `--local` to force execution
+on the current machine. `list`, `push`, `deploy`, and `setup` never forward
+(`push`/`deploy` exist precisely to move local builds *to* the host).
+
+Without a configured host, commands run locally — which on the build host
+itself (no `.repo-host` there) is exactly right, and elsewhere the exact
+commands to run are printed by the orchestrator, with the 5-minute
+auto-release timer as the backstop.
+
+The host setting is any destination `ssh` accepts, resolved in this order:
+
+1. `--host <dest>` on the command
+2. `OMARCHY_REPO_HOST` environment variable
+3. the git-ignored `.repo-host` file (one line; `#` comments allowed)
+
+The server layout lives under `/root`, so the value is `root@<ip>`,
+`root@<hostname>`, or — nicest — a `Host` alias from `~/.ssh/config` that
+carries the user, key, and port:
+
+```
+# .repo-host
+root@pkgs.example.com
+```
+
+All connections are plain ssh; nothing else is used to reach the host.
+
+**How "this machine is the build host" is detected — and its one caveat.**
+The marker is the published database living in this checkout
+(`pkgs.omarchy.org/<channel>/<arch>/omarchy.db*`), the same convention the
+rest of `bin/` uses. A workstation that once ran a full local
+`bin/repo release` carries that marker too and would infer it is the host.
+An explicitly configured destination always outranks the inference — `--host`,
+`OMARCHY_REPO_HOST`, and `.repo-host` are checked first, and only when none is
+set does local detection apply. So if a machine ever misidentifies itself,
+writing the real host into `.repo-host` is the fix.
 
 ## Directory Structure
 
@@ -546,19 +637,14 @@ omarchy-pkgs/
 │           └── upstream.sh     # Optional vendor release feed hook (non-AUR packages)
 ├── build/
 ├── build-output/               # Unsigned packages (temporary)
-│   ├── edge/
-│   │   ├── x86_64/
-│   │   └── aarch64/
+│   ├── edge/                   # (rc/ and stable/ alongside, each x86_64 + aarch64)
+│   ├── rc/
 │   └── stable/
-│       ├── x86_64/
-│       └── aarch64/
 ├── pkgs.omarchy.org/           # Signed packages (production)
-│   ├── edge/
-│   │   ├── x86_64/
-│   │   └── aarch64/
+│   ├── .release.lock           # Host-wide lock: one channel mutation at a time
+│   ├── edge/                   # Each channel: x86_64/ and aarch64/
+│   ├── rc/
 │   └── stable/
-│       ├── x86_64/
-│       └── aarch64/
 └── bin/                        # CLI tools (on host)
 ```
 
@@ -599,7 +685,9 @@ Fields:
 - `min_release_age`: optional quarantine for upstream releases (`"24h"`, `"2d"`, or bare seconds). The newest release older than the window ships; anything younger waits, and a release whose age cannot be proven fails the sync. Bypass deliberately with `BYPASS_MIN_RELEASE_AGE=1 bin/sync-upstream <package>`.
 - `sync`: optional for AUR packages; defaults to `true`. Set `false` for AUR-origin packages that Omarchy maintains manually.
 - `aur`: optional AUR package name when it differs from the local package directory, usually for split packages.
-- `release_ring`: optional. `fast` means the package is built directly for stable as well as edge. Packages without a ring build in edge and reach stable through tested artifact promotion (`bin/repo migrate`).
+- `release_ring`: optional. `fast` means the package is built directly for stable as well as edge, with the artifacts replicated into rc for parity. Packages without a ring build in edge and reach stable through the pipeline (`bin/repo advance`).
+- `channels`: optional array bounding where the package may be built (`edge`, `rc`, `stable`). Without the key a package is a member of every channel and follows the default build rules above; `bin/repo advance` refuses to carry a package anywhere it isn't a member.
+- `pinned`: optional boolean. A pinned package's version is set per release by `omarchy-release` on the `rc` branch, so it is never built for stable (promotion only) and is built for rc only from that branch's worktree (`OMARCHY_RC_PINS=1`). Used by `omarchy` and `omarchy-settings`.
 - `skip_build`: optional boolean; defaults to `false`. Set `true` to exclude a package from scheduled version checks and unscoped builds. The package can still be built explicitly with `bin/repo release --package <name>`.
 - `pkgrel`: optional generic/x86 Omarchy suffix for a version-pinned rebuild bump. It is forbidden for packages in `config/aarch64-packages`, which store the complete upstream-respecting release directly. For other packages this emits `<aur pkgrel>.<suffix>`; `offset` exists only for migration from older absolute bumps.
 - `rebuild_on`: optional array of package names this package links against closely enough that it must be rebuilt when they change, independent of its own source. Read by `bin/sync-rebuilds`.
@@ -608,10 +696,11 @@ Fields:
 
 ### Build Matrix
 
-- **Edge unscoped builds** (`--mirror edge`): packages in `pkgbuilds/*` unless `"skip_build": true`
+- **Edge unscoped builds** (`--mirror edge`): packages in `pkgbuilds/*` unless `"skip_build": true` or `channels` excludes edge
+- **Rc unscoped builds** (`--mirror rc`): `"release_ring": "fast"` packages, built natively in the rc image. The pinned release pair joins them only when `OMARCHY_RC_PINS=1` (the `rc` branch worktree, set by `omarchy-release rc`)
 - **Stable unscoped builds** (`--mirror stable`): packages with `"release_ring": "fast"` unless `"skip_build": true`
 - **Explicit builds** (`--package <name>`): the selected package, including packages with `"skip_build": true`, subject to mirror eligibility
-- **Stable promotion** (`bin/repo migrate`): copies tested edge artifacts into stable
+- **Channel moves** (`bin/repo advance`): copies current packages + signatures forward through edge → rc → stable, never rewriting a published filename
 
 ## Adding Packages
 
@@ -749,20 +838,96 @@ The repository includes GitHub workflows and systemd services for automated rele
 
 #### Systemd Services
 
-1. **check-versions** (Every 6 hours at :30): Pulls latest from git, compares PKGBUILD versions to published versions, creates state files if builds are needed
-2. **auto-release-edge** (Every 6 hours at +1:00): If state file exists, builds all edge packages that need updates
-3. **auto-release-stable** (Every 6 hours at +1:00): If state file exists, builds `release_ring=fast` packages for stable (runs in parallel with edge)
+All four units run **every 5 minutes**, staggered by a minute each, so a push
+reaches the mirror in minutes rather than hours:
+
+1. **check-versions** (`*:0/5`): Pulls latest from git, compares PKGBUILD versions to published versions, creates state files if builds are needed
+2. **auto-release-edge** (`*:1/5`): If a state file exists, builds all edge packages that need updates
+3. **auto-release-rc** (`*:2/5`): Builds fast-ring packages for rc, from the main checkout like the other two — natively in the rc image, not copied from another channel. The pinned release pair is built separately by `omarchy-release rc` in the `rc` branch worktree
+4. **auto-release-stable** (`*:3/5`): If a state file exists, builds `release_ring=fast` packages for stable and replicates them to rc
+
+That cadence is only safe because of three guards:
+
+- **No overlap.** Every channel-mutating run takes a host-wide lock
+  (`pkgs.omarchy.org/.release.lock`). Scheduled runs take it
+  **non-blocking**: if a build is already going, the tick exits immediately
+  instead of queuing. Waiting would stack one stalled process per tick behind
+  a long build and stampede when it finished. Manual commands still wait, as
+  an operator expects. `check-versions` takes it too — its `git pull` would
+  otherwise swap PKGBUILDs out from under a running build.
+- **Backoff on failure.** A failed release records the attempt in
+  `.build-failed-<channel>` and backs off exponentially — 10m, 20m, 40m, up to
+  a 6h ceiling — instead of rebuilding the same broken tree every 5 minutes.
+  **Any new commit clears the backoff immediately**, since a push is the most
+  likely fix. Clear it by hand with `rm /root/.state/.build-failed-<channel>`.
+- **Quiet when idle.** With nothing queued a tick exits without output, so the
+  journal shows the runs that mattered rather than 288 no-ops a day.
+
+`bin/repo timers` reports all of this: schedules, last results, what is
+queued, what is failing and when it will retry, and whether the lock is held.
+
+### Build reports
+
+Every release run reports to Basecamp Campfire — not just failures, so a push
+can be followed all the way to the mirror without watching the host:
+
+| Event | Message |
+|---|---|
+| 🔨 Started | channel, arch, host, the commit being built, and which packages are queued |
+| ✅ Published | the packages and versions that went out, duration, and the channel URL |
+| 📦 Promoted | what `advance` moved between channels (including the rc bootstrap and fast-ring replication) |
+| 📦 Nothing to publish | a queued run built nothing — see below |
+| 🔴 Failed | which step failed, the commit, and the last 25 log lines |
+
+Reports are tied to release *runs*, not timer ticks: a tick with nothing
+queued exits silently, so a quiet day is a quiet chat. That is what makes the
+"nothing to publish" report meaningful rather than routine — a release only
+runs when the version check queued work, so building nothing means the check
+and the builder disagree about what is out of date. It names the packages that
+were queued but not built, which is where to start looking.
+
+By default everything posts to `BASECAMP_CHATBOT_URL`, the same chat the
+AUR/upstream sync workflows use — one variable, nothing extra to configure.
+
+If release traffic starts drowning that chat, give it its own: create a second
+Basecamp chat, add a chatbot integration to it, and export its lines URL
+alongside the existing one in `/root/.omarchy/build-credentials`:
+
+```bash
+export OMARCHY_RELEASE_CHATBOT_URL="https://3.basecamp.com/<account>/integrations/<key>/buckets/<project>/chats/<chat>/lines"
+```
+
+Release reports then go there while the sync workflows keep posting to
+`BASECAMP_CHATBOT_URL`. With neither set, reports are silently skipped.
+`bin/setup` reports which of the three cases applies.
+
+Check on all of it with `bin/repo timers` — schedule, each unit's last run and
+whether it succeeded, what is queued, whether a release is running right now,
+and any failed units. Like the other host commands it forwards over ssh, so
+the build box's state is one command away from any machine:
+
+```bash
+bin/repo timers           # runs on the repository host when one is configured
+bin/repo timers --local   # inspect this machine instead
+```
 
 State files are stored in `/root/.state/`:
-- `.sync-needed-edge`
-- `.sync-needed-stable`
+- `.sync-needed-<channel>` — the packages queued for that channel, one per
+  line; the release run reads them to name what it is building
+- `.build-failed-<channel>` — consecutive failure count, timestamp, and the
+  commit it failed on (drives the backoff; removing it forces a retry)
 
 ### Schedule (America/New_York)
 
-| Time | Action |
+| Minute of every hour | Action |
 |------|--------|
-| 00:30, 06:30, 12:30, 18:30 | check-versions (git pull + creates state files) |
-| 01:00, 07:00, 13:00, 19:00 | auto-release-edge + auto-release-stable (parallel) |
+| :00, :05, :10, … | check-versions (git pull + creates state files) |
+| :01, :06, :11, … | auto-release-edge |
+| :02, :07, :12, … | auto-release-rc |
+| :03, :08, :13, … | auto-release-stable |
+
+Each unit is a no-op unless its channel has queued work, another run holds the
+lock, or the channel is in failure backoff.
 
 ### Installation
 
@@ -791,16 +956,22 @@ hold secrets, so setup reports on them rather than creating them.
 ### Management
 
 ```bash
-# Check timer status
-systemctl list-timers omarchy-*
+# Everything at a glance: schedules, last runs, queues, backoff, lock
+bin/repo timers                     # forwards to the host when one is configured
 
-# Manual trigger
+# Manual trigger (edge, rc, stable)
 systemctl start omarchy-check-versions.service
 systemctl start omarchy-auto-release-edge.service
-systemctl start omarchy-auto-release-stable.service
 
 # View logs
-journalctl -u omarchy-check-versions.service
-journalctl -u omarchy-auto-release-edge.service
-journalctl -u omarchy-auto-release-stable.service
+journalctl -u omarchy-auto-release-edge.service -n 50
+
+# Clear a channel stuck in failure backoff (a new commit also clears it)
+rm /root/.state/.build-failed-edge
+
+# Release lock left behind by a killed run (bin/repo timers shows if it is live)
+rm /root/omarchy-pkgs/pkgs.omarchy.org/.release.lock
 ```
+
+The main checkout is pulled by `check-versions` on its 5-minute tick, so the
+host stays current on whatever branch it has checked out — it must be `master`.

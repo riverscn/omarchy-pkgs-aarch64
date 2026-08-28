@@ -9,6 +9,7 @@ BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
 source "$BUILD_ROOT/helpers/message-helpers.sh"
 source "$BUILD_ROOT/helpers/docker-helpers.sh"
 source "$BUILD_ROOT/helpers/paths.sh"
+source "$BUILD_ROOT/helpers/lock-helpers.sh"
 
 # Function to update repository database using Docker
 update_database() {
@@ -27,19 +28,27 @@ update_database() {
   # Make output directory writable for container
   make_dir_writable "$REPO_DIR"
 
-  # Use the target-architecture image so native ARM64 CI does not need QEMU.
-  build_docker_image "$BUILD_DIR" "$ARCH" "$MIRROR"
+  # repo-add is architecture- and mirror-independent, so always use the edge
+  # x86_64 image. This also lets bootstrap-rc build the rc database before the
+  # rc channel exists remotely (an rc image can only build after it does).
+  # Native AArch64 publishing is the exception: use its target image so the
+  # ARM runner does not need QEMU merely to invoke repo-add.
+  local image_arch=x86_64 image_mirror=edge platform_arg='--platform linux/amd64'
+  if [[ $ARCH == aarch64 ]]; then
+    image_arch=$ARCH
+    image_mirror=$MIRROR
+    platform_arg=$(get_platform_arg "$ARCH")
+  fi
+  build_docker_image "$BUILD_DIR" "$image_arch" "$image_mirror"
 
-  # repo-add is architecture neutral but is available inside this image.
-  PLATFORM_ARG=$(get_platform_arg "$ARCH")
-  docker run --rm $PLATFORM_ARG \
+  docker run --rm $platform_arg \
     -e ARCH="$ARCH" \
     -e MIRROR="$MIRROR" \
-    -v "$BUILD_ROOT/pkgs.omarchy.org:/output" \
+    -v "$REPO_ROOT:/output" \
     -v "$BUILD_DIR:/build:ro" \
     -v "$BUILD_ROOT/config:/config:ro" \
     -v "$BUILD_ROOT/pkgbuilds:/pkgbuilds:ro" \
-    "omarchy-pkg-builder:latest-$ARCH-$MIRROR" /build/update-repo.sh
+    "omarchy-pkg-builder:latest-$image_arch-$image_mirror" /build/update-repo.sh
 }
 
 # Main execution
@@ -56,6 +65,7 @@ main() {
       ;;
     --mirror)
       MIRROR="$2"
+      require_valid_mirror "$MIRROR"
       update_arch_paths
       shift 2
       ;;
@@ -64,7 +74,7 @@ main() {
       echo ""
       echo "Options:"
       echo "  --arch <arch>      Target architecture (x86_64 or aarch64, default: x86_64)"
-      echo "  --mirror <mirror>  Mirror to use (edge or stable, default: edge)"
+      echo "  --mirror <mirror>  Mirror to use (edge, rc, or stable, default: edge)"
       echo "  -h, --help         Show this help message"
       exit 0
       ;;
@@ -78,6 +88,8 @@ main() {
   print_info "Target architecture: $ARCH"
   print_info "Mirror: $MIRROR"
   print_info "Output directory: $REPO_DIR"
+
+  acquire_release_lock || exit 1
 
   update_database
 

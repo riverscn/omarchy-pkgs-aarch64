@@ -25,7 +25,7 @@ duplicates=$(printf '%s\n' "${packages[@]}" | sort | uniq -d)
 [[ -z $duplicates ]] || fail "duplicate packages in scope: $duplicates"
 
 mapfile -t excluded_packages < <(read_scope "$EXCLUDED_PACKAGES")
-[[ ${#excluded_packages[@]} -eq 45 ]] || fail "expected 45 audited exclusions, found ${#excluded_packages[@]}"
+[[ ${#excluded_packages[@]} -eq 46 ]] || fail "expected 46 audited exclusions, found ${#excluded_packages[@]}"
 excluded_duplicates=$(printf '%s\n' "${excluded_packages[@]}" | sort | uniq -d)
 [[ -z $excluded_duplicates ]] || fail "duplicate packages in exclusions: $excluded_duplicates"
 scope_overlap=$(comm -12 <(printf '%s\n' "${packages[@]}" | sort) <(printf '%s\n' "${excluded_packages[@]}" | sort))
@@ -303,6 +303,7 @@ grep -Fq 'baseline_line_for' "$ROOT/bin/prepare-github-release" || fail "unchang
 grep -Fq 'REMOTE_REPOSITORY_SERVER' "$ROOT/build/validate-repository.sh" || fail "validator cannot resolve remote packages"
 grep -Fq 'Count the complete database' "$ROOT/build/update-repo.sh" || fail "incremental count is not database-wide"
 grep -Fq '"$BUILD_ROOT/bin/publish-github-release"' "$ROOT/bin/check-official-stable" || fail "publisher changes do not trigger a release"
+grep -Fq '"$BUILD_ROOT/bin/repo"' "$ROOT/bin/check-official-stable" || fail "repository entrypoint changes do not trigger a release"
 
 grep -Fq 'local_packages=' "$ROOT/bin/sync-aarch64-sources" || fail "source sync does not distinguish local packages"
 grep -Fq 'sync-arch-packages' "$ROOT/bin/sync-aarch64-sources" || fail "Arch source sync is not wired"
@@ -320,4 +321,4 @@ done < <(
   done < <(read_scope "$SCOPE")
 )
 
-echo "PASS: 89-package-base/119-output AArch64 scope, 45 explicit exclusions, upstream pkgrel policy, ARM recipes, and rolling Release are internally consistent"
+echo "PASS: 89-package-base/119-output AArch64 scope, 46 explicit exclusions, upstream pkgrel policy, ARM recipes, and rolling Release are internally consistent"

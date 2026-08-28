@@ -1,8 +1,8 @@
 [Unit]
-Description=Release queued edge builds every 5 minutes
+Description=Release queued rc builds every 5 minutes
 
 [Timer]
-OnCalendar=*:1/5
+OnCalendar=*:2/5
 Persistent=true
 RandomizedDelaySec=20
 

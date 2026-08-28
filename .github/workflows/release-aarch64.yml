@@ -11,6 +11,7 @@ on:
       - bin/prepare-github-release
       - bin/promote-build
       - bin/publish-github-release
+      - bin/repo
       - bin/release-aarch64
       - bin/sign
       - bin/sign-database

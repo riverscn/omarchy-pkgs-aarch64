@@ -41,6 +41,7 @@ dropbox-cli
 minecraft-launcher
 nautilus-dropbox
 spotify
+t3code-patched-bin
 tmog-bin
 
 # x86 platform hardware, firmware, multilib, or kernel packages. These target

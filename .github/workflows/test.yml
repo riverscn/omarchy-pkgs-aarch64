@@ -34,4 +34,5 @@ jobs:
               runuser -u runner -- ./test/rolling-release-test.sh
               ./bin/sync-upstream self-test
               ./bin/omarchy-pkgs self-test
+              ./bin/omarchy-release self-test
             '

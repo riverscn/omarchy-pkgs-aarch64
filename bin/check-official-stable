@@ -112,6 +112,7 @@ input_digest=$(
       "$BUILD_ROOT/bin/prepare-github-release" \
       "$BUILD_ROOT/bin/promote-build" \
       "$BUILD_ROOT/bin/publish-github-release" \
+      "$BUILD_ROOT/bin/repo" \
       "$BUILD_ROOT/bin/release-aarch64" \
       "$BUILD_ROOT/bin/sign" \
       "$BUILD_ROOT/bin/sign-database" \

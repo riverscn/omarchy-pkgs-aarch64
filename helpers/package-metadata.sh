@@ -12,6 +12,8 @@
 #   { "source": "aur", "pkgrel": { "suffix": 1, "offset": 1 } }
 #   { "source": "aur", "rebuild_on": ["qt6-base"] }
 #   { "source": "local" }
+#   { "source": "local", "channels": ["edge"] }
+#   { "source": "local", "channels": ["edge", "rc", "stable"] }
 #   { "source": "local", "min_release_age": "24h" }
 #   { "source": "local", "upstream": { "github": "owner/repo", "checksums": "SHASUMS256.txt", "assets": { "x86_64": "name-{tag}-x64.tar.xz" } } }
 #
@@ -138,6 +140,40 @@ package_has_pkgbuild() {
   [[ -f "$pkgdir/PKGBUILD" ]]
 }
 
+# Channel membership: where a package may be published. Packages without a
+# `channels` key are members of every channel (they flow edge -> rc -> stable).
+package_has_channels() {
+  local pkgdir="$1" metadata
+  metadata=$(metadata_file_for_dir "$pkgdir")
+  [[ -f "$metadata" ]] || return 1
+  jq -e 'has("channels")' "$metadata" >/dev/null
+}
+
+package_channels() {
+  local pkgdir="$1" metadata
+  metadata=$(metadata_file_for_dir "$pkgdir")
+  [[ -f "$metadata" ]] || return 0
+  jq -r '(.channels // [])[]' "$metadata"
+}
+
+package_in_channel() {
+  local pkgdir="$1" channel="$2"
+  package_has_channels "$pkgdir" || return 0
+  package_channels "$pkgdir" | grep -qx "$channel"
+}
+
+# A pinned package's version is set per release by the orchestrator on the rc
+# branch, not by whatever the current checkout happens to say. Only a build
+# running from that branch's worktree (OMARCHY_RC_PINS=1) may build it for rc;
+# otherwise master's shipped pins would try to overwrite an in-flight RC with
+# an older version.
+package_is_pinned() {
+  local pkgdir="$1" metadata
+  metadata=$(metadata_file_for_dir "$pkgdir")
+  [[ -f "$metadata" ]] || return 1
+  [[ "$(jq -r 'if has("pinned") then .pinned else false end' "$metadata")" == "true" ]]
+}
+
 package_builds_for_mirror() {
   local pkgdir="$1"
   local mirror="$2"
@@ -145,17 +181,42 @@ package_builds_for_mirror() {
   package_has_pkgbuild "$pkgdir" || return 1
   package_has_metadata "$pkgdir" || return 1
 
+  # An explicit `channels` key is the outer bound on where a package may be
+  # built at all.
+  if package_has_channels "$pkgdir" && ! package_in_channel "$pkgdir" "$mirror"; then
+    return 1
+  fi
+
   case "$mirror" in
     edge)
       return 0
       ;;
+    rc)
+      # Fast-ring packages build for rc natively rather than being copied from
+      # stable: the rc channel's Arch base can be sitting anywhere between
+      # stable's snapshot and edge's, so an artifact linked against stable's
+      # libraries is not necessarily correct for rc.
+      package_is_pinned "$pkgdir" && { [[ -n "${OMARCHY_RC_PINS:-}" ]]; return; }
+      package_is_fast_ring "$pkgdir"
+      ;;
     stable)
+      package_is_pinned "$pkgdir" && return 1
       package_is_fast_ring "$pkgdir"
       ;;
     *)
       return 1
       ;;
   esac
+}
+
+# Whether `bin/repo advance` may carry this package into the given channel:
+# a member of that channel that is not built there natively. Native builds are
+# authoritative — advancing over them could pair a published filename with
+# different bytes, which the R2 cache would never recover from.
+package_moves_to_channel() {
+  local pkgdir="$1" channel="$2"
+  package_in_channel "$pkgdir" "$channel" || return 1
+  ! package_builds_for_mirror "$pkgdir" "$channel"
 }
 
 package_dirs() {
@@ -360,6 +421,22 @@ validate_package_metadata() {
     ""|fast) ;;
     *) echo "invalid release_ring for $(basename "$pkgdir"): $ring"; return 1 ;;
   esac
+
+  if ! jq -e 'if has("pinned") | not then true else (.pinned | type) == "boolean" end' "$metadata" >/dev/null; then
+    echo "invalid pinned for $(basename "$pkgdir"): must be boolean"
+    return 1
+  fi
+
+  if ! jq -e '
+    if has("channels") | not then true
+    else .channels | type == "array" and length > 0
+      and all(. == "edge" or . == "rc" or . == "stable")
+      and (unique | length) == length
+    end
+  ' "$metadata" >/dev/null; then
+    echo "invalid channels for $(basename "$pkgdir"): must be a non-empty array of unique edge/rc/stable values"
+    return 1
+  fi
 
   if ! package_min_release_age_seconds "$pkgdir" >/dev/null; then
     echo "invalid min_release_age for $(basename "$pkgdir"): must be a number with optional s/m/h/d suffix"
