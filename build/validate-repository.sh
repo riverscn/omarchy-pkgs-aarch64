@@ -116,4 +116,10 @@ done
   echo "ERROR: repository contains no resolvable scoped packages" >&2
   exit 1
 }
-pacman -Sp --noconfirm "${available_packages[@]}" >/dev/null
+transaction_output=$(mktemp)
+if ! pacman -Sp --noconfirm "${available_packages[@]}" >"$transaction_output" 2>&1; then
+  cat "$transaction_output" >&2
+  echo "ERROR: cannot resolve the complete scoped package transaction" >&2
+  exit 1
+fi
+rm -f "$transaction_output"

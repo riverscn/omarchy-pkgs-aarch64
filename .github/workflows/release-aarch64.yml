@@ -31,6 +31,10 @@ on:
         description: Reuse build artifacts from a completed master run instead of rebuilding
         type: string
         default: ''
+      recovery_packages:
+        description: Package bases to build alongside reused artifacts (comma or whitespace separated)
+        type: string
+        default: ''
 
 concurrency:
   group: aarch64-stable-release
@@ -69,9 +73,24 @@ jobs:
         env:
           FORCE: ${{ inputs.force || false }}
           REUSE_RUN_ID: ${{ inputs.reuse_run_id }}
+          RECOVERY_PACKAGES: ${{ inputs.recovery_packages }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          mapfile -t recovery_packages < <(
+            tr ',[:space:]' '\n' <<< "$RECOVERY_PACKAGES" | sed -E '/^$/d' | sort -u
+          )
+          if (( ${#recovery_packages[@]} > 0 )) && [[ -z "$REUSE_RUN_ID" ]]; then
+            echo "recovery_packages requires reuse_run_id" >&2
+            exit 1
+          fi
+          for package in "${recovery_packages[@]}"; do
+            grep -Fxq "$package" < <(sed -E '/^[[:space:]]*(#|$)/d' config/aarch64-packages) || {
+              echo "recovery package is outside the AArch64 scope: $package" >&2
+              exit 1
+            }
+          done
+
           if [[ -n "$REUSE_RUN_ID" ]]; then
             [[ "$FORCE" != true ]] || {
               echo "force and reuse_run_id are mutually exclusive" >&2
@@ -92,7 +111,11 @@ jobs:
               exit 1
             }
             echo "should_build=true" >> "$GITHUB_OUTPUT"
-            echo "Reusing signed-release inputs from workflow run $REUSE_RUN_ID; no packages will be rebuilt."
+            if (( ${#recovery_packages[@]} > 0 )); then
+              echo "Reusing signed-release inputs from workflow run $REUSE_RUN_ID and supplementing: ${recovery_packages[*]}"
+            else
+              echo "Reusing signed-release inputs from workflow run $REUSE_RUN_ID; no packages will be rebuilt."
+            fi
             exit 0
           fi
 
@@ -147,7 +170,7 @@ jobs:
           name: aarch64-version-set
 
       - name: Seed the latest verified repository database
-        if: inputs.reuse_run_id == ''
+        if: inputs.reuse_run_id == '' || inputs.recovery_packages != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: ./bin/download-aarch64-baseline --database-only
@@ -165,13 +188,36 @@ jobs:
           ./bin/repo build "${build_args[@]}"
           touch build-output/stable/aarch64/.complete
 
+      - name: Build supplemental recovery packages natively
+        if: inputs.reuse_run_id != '' && inputs.recovery_packages != ''
+        env:
+          RECOVERY_PACKAGES: ${{ inputs.recovery_packages }}
+          OMARCHY_REPOSITORY_SERVER: https://github.com/${{ github.repository }}/releases/latest/download
+        run: |
+          set -euo pipefail
+          mapfile -t packages < <(
+            tr ',[:space:]' '\n' <<< "$RECOVERY_PACKAGES" | sed -E '/^$/d' | sort -u
+          )
+          (( ${#packages[@]} > 0 )) || {
+            echo "No supplemental recovery packages were selected" >&2
+            exit 1
+          }
+          ./bin/repo build \
+            --arch aarch64 \
+            --mirror stable \
+            --force-explicit \
+            --allow-partial \
+            --package "${packages[@]}"
+          touch build-output/stable/aarch64/.complete
+
       - name: Summarize the partial build
         id: result
         env:
           REUSE_RUN_ID: ${{ inputs.reuse_run_id }}
+          RECOVERY_PACKAGES: ${{ inputs.recovery_packages }}
         run: |
           set -euo pipefail
-          if [[ -n "$REUSE_RUN_ID" ]]; then
+          if [[ -n "$REUSE_RUN_ID" && -z "$RECOVERY_PACKAGES" ]]; then
             echo "should_publish=true" >> "$GITHUB_OUTPUT"
             echo "Reusing package artifacts from workflow run $REUSE_RUN_ID."
             exit 0
@@ -218,6 +264,19 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+      - name: Pack supplemental recovery packages for artifact transfer
+        if: inputs.reuse_run_id != '' && inputs.recovery_packages != ''
+        run: tar -cf aarch64-recovery-packages.tar -C build-output/stable/aarch64 .
+
+      - uses: actions/upload-artifact@v7
+        if: inputs.reuse_run_id != '' && inputs.recovery_packages != ''
+        with:
+          name: aarch64-recovery-packages
+          path: aarch64-recovery-packages.tar
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
   publish:
     needs: [plan, build]
     if: needs.plan.outputs.should_build == 'true' && needs.build.outputs.should_publish == 'true'
@@ -258,11 +317,34 @@ jobs:
           repository: ${{ github.repository }}
           run-id: ${{ inputs.reuse_run_id }}
 
+      - uses: actions/download-artifact@v8
+        if: inputs.reuse_run_id != '' && inputs.recovery_packages != ''
+        with:
+          name: aarch64-recovery-packages
+          path: ${{ runner.temp }}/aarch64-recovery-packages
+
       - name: Restore changed package filenames
         run: |
+          set -euo pipefail
           mkdir -p build-output/stable/aarch64
           tar -xf "$RUNNER_TEMP/aarch64-changed-packages/aarch64-changed-packages.tar" \
             -C build-output/stable/aarch64
+          cp build-output/stable/aarch64/.failed-packages "$RUNNER_TEMP/reused-failed-packages" 2>/dev/null || true
+
+          if [[ -f "$RUNNER_TEMP/aarch64-recovery-packages/aarch64-recovery-packages.tar" ]]; then
+            tar -xf "$RUNNER_TEMP/aarch64-recovery-packages/aarch64-recovery-packages.tar" \
+              -C build-output/stable/aarch64
+            cp build-output/stable/aarch64/.failed-packages "$RUNNER_TEMP/recovery-failed-packages" 2>/dev/null || true
+            {
+              [[ ! -f "$RUNNER_TEMP/reused-failed-packages" ]] || cat "$RUNNER_TEMP/reused-failed-packages"
+              [[ ! -f "$RUNNER_TEMP/recovery-failed-packages" ]] || cat "$RUNNER_TEMP/recovery-failed-packages"
+            } | sed -E '/^[[:space:]]*$/d' | sort -u > "$RUNNER_TEMP/combined-failed-packages"
+            if [[ -s "$RUNNER_TEMP/combined-failed-packages" ]]; then
+              cp "$RUNNER_TEMP/combined-failed-packages" build-output/stable/aarch64/.failed-packages
+            else
+              rm -f build-output/stable/aarch64/.failed-packages
+            fi
+          fi
 
       - name: Seed the published repository database
         env:

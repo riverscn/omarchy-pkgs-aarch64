@@ -20,7 +20,7 @@ read_scope() {
 }
 
 mapfile -t packages < <(read_scope "$SCOPE")
-[[ ${#packages[@]} -eq 88 ]] || fail "expected 88 AArch64 package bases, found ${#packages[@]}"
+[[ ${#packages[@]} -eq 89 ]] || fail "expected 89 AArch64 package bases, found ${#packages[@]}"
 duplicates=$(printf '%s\n' "${packages[@]}" | sort | uniq -d)
 [[ -z $duplicates ]] || fail "duplicate packages in scope: $duplicates"
 
@@ -39,6 +39,7 @@ mapfile -t expected_scope <<'EOF'
 bindfs
 dotnet-runtime-bin
 gradle
+gtk-engine-murrine
 omarchy-aarch64-keyring
 omarchy-keyring
 limine-mkinitcpio-hook
@@ -128,7 +129,7 @@ EOF
 diff -u <(printf '%s\n' "${expected_scope[@]}") <(printf '%s\n' "${packages[@]}") ||
   fail "AArch64 scope differs from the audited package set"
 
-[[ $(read_scope "$LOCAL_PACKAGES" | wc -l) -eq 26 ]] || fail "unexpected local-policy package count"
+[[ $(read_scope "$LOCAL_PACKAGES" | wc -l) -eq 27 ]] || fail "unexpected local-policy package count"
 [[ $(read_scope "$OVERLAY_PACKAGES" | wc -l) -eq 19 ]] || fail "unexpected overlay package count"
 for policy_file in "$LOCAL_PACKAGES" "$OVERLAY_PACKAGES"; do
   while IFS= read -r package_name; do
@@ -166,7 +167,7 @@ for package_name in "${packages[@]}"; do
     ' <<<"$srcinfo" || fail "$package_name does not emit its requested package name"
   fi
 done
-[[ $output_count -eq 117 ]] || fail "expected 117 AArch64 package outputs, found $output_count"
+[[ $output_count -eq 118 ]] || fail "expected 118 AArch64 package outputs, found $output_count"
 
 vice_srcinfo=$(<"$TEST_TMP/libretro-vice-git.srcinfo")
 for core in x128 x64 x64dtv x64sc xcbm2 xcbm5x0 xpet xplus4 xscpu64 xvic; do
@@ -282,6 +283,13 @@ grep -Fq '_archive=voxtype-$pkgver' "$ROOT/pkgbuilds/voxtype-bin/PKGBUILD" || fa
 grep -Fq 'HAVE_CDROM=1' "$ROOT/pkgbuilds/libretro-kronos/PKGBUILD" || fail "Kronos ARM64 omits Linux libretro-common sources"
 grep -Fq 'linux-aarch64.pacman' "$ROOT/pkgbuilds/heroic-games-launcher-bin/PKGBUILD" || fail "Heroic checks the wrong electron-builder ARM package filename"
 grep -Fq 'T3-Code-*-arm64.AppImage' "$ROOT/pkgbuilds/t3code-bin/PKGBUILD" || fail "T3 Code couples the AppImage filename to a possibly stale upstream desktop version"
+grep -Fq 'arch=(x86_64 i686 aarch64)' "$ROOT/pkgbuilds/gtk-engine-murrine/PKGBUILD" || fail "Yaru's missing GTK2 engine does not declare AArch64"
+grep -Fq 'gtk-engine-murrine' "$ROOT/pkgbuilds/yaru-icon-theme/PKGBUILD" || fail "Yaru no longer declares its GTK2 engine dependency"
+git apply --numstat "$ROOT/pkgbuilds/gtk-engine-murrine/.omarchy/patches/aarch64.patch" >/dev/null ||
+  fail "gtk-engine-murrine carries a malformed AUR architecture patch"
+jq -e '.source == "aur" and (.upstream_commit | length == 40)' \
+  "$ROOT/pkgbuilds/gtk-engine-murrine/.omarchy/package.json" >/dev/null ||
+  fail "gtk-engine-murrine does not pin its AUR source commit"
 grep -Fq 'libretro-ppsspp-linux-arm64-no-adrenotools.patch' "$ROOT/pkgbuilds/libretro-ppsspp/PKGBUILD" || fail "PPSSPP does not exclude Android-only AdrenoTools from Linux ARM64"
 grep -Fq 'git+https://github.com/bylaws/libadrenotools.git' "$ROOT/pkgbuilds/libretro-ppsspp/PKGBUILD" && fail "PPSSPP still fetches the Android-only AdrenoTools submodule"
 grep -Fq 'CARGO_TARGET_DIR' "$ROOT/pkgbuilds/t3code-bin/PKGBUILD" && fail "T3 Code redirects Cargo away from the output path verified by upstream"
@@ -328,6 +336,10 @@ grep -Fq 'baseline_line_for' "$ROOT/bin/prepare-github-release" || fail "unchang
 grep -Fq 'REMOTE_REPOSITORY_SERVER' "$ROOT/build/validate-repository.sh" || fail "validator cannot resolve remote packages"
 grep -Fq 'reuse_run_id' "$ROOT/.github/workflows/release-aarch64.yml" || fail "workflow cannot recover a valid build artifact without rebuilding"
 grep -Fq 'run-id: ${{ inputs.reuse_run_id }}' "$ROOT/.github/workflows/release-aarch64.yml" || fail "workflow does not download recovery artifacts from the selected run"
+grep -Fq 'recovery_packages' "$ROOT/.github/workflows/release-aarch64.yml" || fail "workflow cannot supplement a reused build with a missing dependency"
+grep -Fq 'aarch64-recovery-packages.tar' "$ROOT/.github/workflows/release-aarch64.yml" || fail "workflow cannot transfer supplemental recovery packages"
+grep -Fq 'combined-failed-packages' "$ROOT/.github/workflows/release-aarch64.yml" || fail "workflow loses the prior partial-build failure set during recovery"
+grep -Fq 'cannot resolve the complete scoped package transaction' "$ROOT/build/validate-repository.sh" || fail "repository validation hides transaction dependency failures"
 grep -Fq 'Count the complete database' "$ROOT/build/update-repo.sh" || fail "incremental count is not database-wide"
 grep -Fq '"$BUILD_ROOT/bin/publish-github-release"' "$ROOT/bin/check-official-stable" || fail "publisher changes do not trigger a release"
 grep -Fq '"$BUILD_ROOT/bin/repo"' "$ROOT/bin/check-official-stable" || fail "repository entrypoint changes do not trigger a release"
@@ -348,4 +360,4 @@ done < <(
   done < <(read_scope "$SCOPE")
 )
 
-echo "PASS: 88-package-base/117-output AArch64 scope, 47 explicit exclusions, upstream pkgrel policy, ARM recipes, and rolling Release are internally consistent"
+echo "PASS: 89-package-base/118-output AArch64 scope, 47 explicit exclusions, upstream pkgrel policy, ARM recipes, and rolling Release are internally consistent"

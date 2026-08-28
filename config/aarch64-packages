@@ -9,6 +9,7 @@
 bindfs
 dotnet-runtime-bin
 gradle
+gtk-engine-murrine
 omarchy-aarch64-keyring
 omarchy-keyring
 
