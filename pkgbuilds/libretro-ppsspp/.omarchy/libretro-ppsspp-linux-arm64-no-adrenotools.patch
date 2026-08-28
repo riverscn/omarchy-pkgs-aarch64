@@ -1,6 +1,13 @@
 diff --git a/libretro/Makefile.common b/libretro/Makefile.common
 --- a/libretro/Makefile.common
 +++ b/libretro/Makefile.common
+@@ -204 +204,6 @@
++ifeq ($(TARGET_ARCH),arm64)
++SOURCES_C += $(EXTDIR)/libpng17/arm/arm_init.c \
++	     $(EXTDIR)/libpng17/arm/filter_neon_intrinsics.c
++endif
++
+ INCFLAGS += -I$(EXTDIR)/lua
 @@ -685,12 +685,14 @@ SOURCES_CXX += $(COMMONDIR)/MemArenaPosix.cpp \
  endif
  

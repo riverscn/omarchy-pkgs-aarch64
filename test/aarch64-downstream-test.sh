@@ -262,8 +262,10 @@ for helper in legendary gogdl nile comet GalaxyCommunication EpicGamesLauncher; 
 done
 grep -Fq -- 'electron-builder --linux pacman --arm64' "$ROOT/pkgbuilds/heroic-games-launcher-bin/PKGBUILD" ||
   fail "Heroic does not produce an ARM64 Linux package"
-grep -Fq "makedepends=('libxcrypt-compat' 'nodejs' 'pnpm' 'python')" "$ROOT/pkgbuilds/heroic-games-launcher-bin/PKGBUILD" ||
-  fail "Heroic lacks pnpm or the legacy libcrypt ABI used by electron-builder's ARM64 FPM"
+for dependency in libxcrypt-compat nodejs openjpeg2 pnpm python; do
+  grep -Fq "makedepends = $dependency" <<<"$heroic_srcinfo" ||
+    fail "Heroic lacks the $dependency build dependency"
+done
 
 rustdesk_srcinfo=$(<"$TEST_TMP/rustdesk.srcinfo")
 grep -Fq 'rustdesk-1.4.9-aarch64.deb' <<<"$rustdesk_srcinfo" || fail "RustDesk lacks its official AArch64 artifact"
@@ -301,6 +303,7 @@ jq -e '.source == "aur" and (.upstream_commit | length == 40)' \
   fail "gtk-engine-murrine does not pin its AUR source commit"
 grep -Fq 'libretro-ppsspp-linux-arm64-no-adrenotools.patch' "$ROOT/pkgbuilds/libretro-ppsspp/PKGBUILD" || fail "PPSSPP does not exclude Android-only AdrenoTools from Linux ARM64"
 grep -Fq 'git+https://github.com/bylaws/libadrenotools.git' "$ROOT/pkgbuilds/libretro-ppsspp/PKGBUILD" && fail "PPSSPP still fetches the Android-only AdrenoTools submodule"
+grep -Fq 'filter_neon_intrinsics.c' "$ROOT/pkgbuilds/libretro-ppsspp/libretro-ppsspp-linux-arm64-no-adrenotools.patch" || fail "PPSSPP does not link bundled libpng's AArch64 NEON implementation"
 grep -Fq 'CARGO_TARGET_DIR' "$ROOT/pkgbuilds/t3code-bin/PKGBUILD" && fail "T3 Code redirects Cargo away from the output path verified by upstream"
 grep -Fq 'platform=arm64-unix' "$ROOT/pkgbuilds/libretro-desmume/PKGBUILD" || fail "DeSmuME lacks its ARM64 platform"
 grep -Fq 'platform=arm64' "$ROOT/pkgbuilds/libretro-kronos/PKGBUILD" || fail "Kronos lacks its ARM64 platform"
