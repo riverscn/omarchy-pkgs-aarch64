@@ -336,6 +336,11 @@ grep -Fq 'PKGDEST="$2"' "$ROOT/build/validate-repository.sh" || fail "repository
 grep -Fq ':/pkgbuilds:ro' "$ROOT/bin/prepare-github-release" || fail "repository validation cannot inspect package outputs"
 grep -Fq 'tar -cf aarch64-changed-packages.tar' "$ROOT/.github/workflows/release-aarch64.yml" || fail "workflow exposes pacman epoch colons to GitHub artifact validation"
 grep -Fq 'tar -xf "$RUNNER_TEMP/aarch64-changed-packages/aarch64-changed-packages.tar"' "$ROOT/.github/workflows/release-aarch64.yml" || fail "workflow does not restore exact pacman filenames after artifact transfer"
+sign_line=$(grep -nF '"$BUILD_ROOT/bin/sign" --arch aarch64 --mirror stable' "$ROOT/bin/prepare-github-release" | cut -d: -f1)
+normalize_line=$(grep -nF '"$BUILD_ROOT/bin/normalize-github-release-packages"' "$ROOT/bin/prepare-github-release" | cut -d: -f1)
+promote_line=$(grep -nF '"$BUILD_ROOT/bin/promote-build" --arch aarch64 --mirror stable' "$ROOT/bin/prepare-github-release" | cut -d: -f1)
+[[ -n $sign_line && -n $normalize_line && -n $promote_line && $sign_line -lt $normalize_line && $normalize_line -lt $promote_line ]] ||
+  fail "epoch filenames are not normalized between package signing and repo promotion"
 grep -Fq 'release_tag=${release_tag:-aarch64-stable}' "$ROOT/bin/publish-github-release" || fail "publisher lacks a permanent tag"
 grep -Fq 'gh release delete-asset' "$ROOT/bin/publish-github-release" || fail "publisher does not prune stale assets"
 grep -Fq 'gh release delete "$old_tag"' "$ROOT/bin/publish-github-release" || fail "publisher does not prune old Releases"

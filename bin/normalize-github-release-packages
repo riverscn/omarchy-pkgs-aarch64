@@ -1,0 +1,41 @@
+#!/bin/bash
+
+set -euo pipefail
+
+directory=${1:-}
+[[ -n $directory && -d $directory ]] || {
+  echo "Usage: $0 <package-directory>" >&2
+  exit 1
+}
+
+directory=$(realpath "$directory")
+shopt -s nullglob
+files=("$directory"/*.pkg.tar.zst "$directory"/*.pkg.tar.zst.sig)
+declare -A targets=()
+
+# GitHub Release assets cannot retain ':' in a filename: the service silently
+# rewrites it to '.'. Pacman uses ':' for an epoch in package archive names, so
+# normalize it explicitly before repo-add records %FILENAME%. The package's
+# internal pkgver (and therefore pacman's epoch/version ordering) is unchanged.
+for source in "${files[@]}"; do
+  filename=${source##*/}
+  [[ $filename == *:* ]] || continue
+  normalized=${filename//:/_epoch_}
+  target="$directory/$normalized"
+
+  [[ ! -e $target ]] || {
+    echo "ERROR: normalized package filename already exists: $normalized" >&2
+    exit 1
+  }
+  [[ -z ${targets[$normalized]:-} ]] || {
+    echo "ERROR: package filenames collide after GitHub normalization: $normalized" >&2
+    exit 1
+  }
+  targets["$normalized"]=$source
+done
+
+for normalized in "${!targets[@]}"; do
+  source=${targets[$normalized]}
+  echo "Normalizing GitHub Release package filename: ${source##*/} -> $normalized"
+  mv -- "$source" "$directory/$normalized"
+done

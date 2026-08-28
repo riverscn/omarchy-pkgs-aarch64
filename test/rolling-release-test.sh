@@ -47,10 +47,28 @@ transfer_source="$work/transfer-source"
 transfer_restore="$work/transfer-restore"
 mkdir -p "$transfer_source" "$transfer_restore"
 touch "$transfer_source/asdcontrol-1:0.6.0-1-aarch64.pkg.tar.zst"
+touch "$transfer_source/asdcontrol-1:0.6.0-1-aarch64.pkg.tar.zst.sig"
 tar -cf "$work/aarch64-changed-packages.tar" -C "$transfer_source" .
 tar -xf "$work/aarch64-changed-packages.tar" -C "$transfer_restore"
 [[ -f "$transfer_restore/asdcontrol-1:0.6.0-1-aarch64.pkg.tar.zst" ]] || {
   echo "artifact transfer did not preserve a pacman epoch filename" >&2
+  exit 1
+}
+
+# GitHub Releases silently rewrite ':' to '.', so normalize epoch filenames
+# ourselves before repo-add records them. Package contents and versions stay
+# untouched; only the externally hosted archive/signature names change.
+"$ROOT/bin/normalize-github-release-packages" "$transfer_restore" >/dev/null
+[[ -f "$transfer_restore/asdcontrol-1_epoch_0.6.0-1-aarch64.pkg.tar.zst" ]] || {
+  echo "GitHub Release package filename was not normalized" >&2
+  exit 1
+}
+[[ -f "$transfer_restore/asdcontrol-1_epoch_0.6.0-1-aarch64.pkg.tar.zst.sig" ]] || {
+  echo "GitHub Release package signature filename was not normalized" >&2
+  exit 1
+}
+compgen -G "$transfer_restore/*:*" >/dev/null && {
+  echo "GitHub Release package normalization left a colon in an asset name" >&2
   exit 1
 }
 

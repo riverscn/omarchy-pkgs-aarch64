@@ -58,6 +58,10 @@ workflow run. A failed publication can reuse a completed run's package artifact
 and optionally supplement only newly discovered missing packages. A subsequent
 recovery can also reuse that supplemental artifact, avoiding both a repeat build
 and a repeat transfer of the complete changed-package set.
+Because GitHub silently rewrites `:` in Release asset names, epoch-bearing
+package archives are explicitly published with `_epoch_` in the external
+filename before `repo-add` records them. Their signed package contents and
+pacman epoch/version metadata remain unchanged.
 
 The latest Release is directly consumable as a pacman repository. Bootstrap
 its public key once, then install the keyring package so future key updates are
