@@ -29,6 +29,7 @@ prepare() {
   for patch in ../debian/patches/*.patch; do
     patch -Np1 < $patch
   done
+  autoreconf -fiv
 }
 
 build() {

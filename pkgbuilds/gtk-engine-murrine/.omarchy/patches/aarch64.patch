@@ -10,3 +10,9 @@ diff --git a/PKGBUILD b/PKGBUILD
  url="http://cimitan.com/murrine/project/murrine"
  license=(LGPL-3.0-or-later)
  depends=(gtk2)
+@@ -29,4 +29,5 @@ prepare() {
+   for patch in ../debian/patches/*.patch; do
+     patch -Np1 < $patch
+   done
++  autoreconf -fiv
+ }

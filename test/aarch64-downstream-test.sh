@@ -288,6 +288,7 @@ grep -Fq 'arch=(x86_64 aarch64)' "$ROOT/pkgbuilds/gtk2/PKGBUILD" || fail "legacy
 grep -Fq 'arch=(x86_64 i686 aarch64)' "$ROOT/pkgbuilds/gtk-engine-murrine/PKGBUILD" || fail "Yaru's missing GTK2 engine does not declare AArch64"
 grep -Fq 'gtk-engine-murrine' "$ROOT/pkgbuilds/yaru-icon-theme/PKGBUILD" || fail "Yaru no longer declares its GTK2 engine dependency"
 grep -Fq 'gtk2' "$ROOT/pkgbuilds/gtk-engine-murrine/PKGBUILD" || fail "Murrine no longer declares its GTK2 dependency"
+grep -Fq 'autoreconf -fiv' "$ROOT/pkgbuilds/gtk-engine-murrine/PKGBUILD" || fail "Murrine keeps its pre-AArch64 config.guess"
 git apply --numstat "$ROOT/pkgbuilds/gtk2/.omarchy/patches/aarch64.patch" >/dev/null ||
   fail "gtk2 carries a malformed AUR architecture patch"
 jq -e '.source == "aur" and (.upstream_commit | length == 40)' \
