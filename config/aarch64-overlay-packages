@@ -1,6 +1,20 @@
 # Packages that follow the official stable version but carry an AArch64 patch
 # on top of the corresponding upstream recipe.
+1password
+asdcontrol
+cursor-bin
+github-copilot-cli
+grok-bot
+hermes-desktop
+hyprland-preview-share-picker
+libretro-uae-git
 limine-mkinitcpio-hook
+lmstudio-bin
+omasnap
 pinta
+qmk-hid
+symfony-cli
 tensaku
 tzupdate
+v4l2-relayd
+yt6801-dkms

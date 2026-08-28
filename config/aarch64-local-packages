@@ -1,10 +1,28 @@
 # Packages whose sources intentionally do not mirror an identically named
 # artifact from pkgs.omarchy.org/stable/x86_64.
 bindfs
+bitwarden
+brave-bin
+brave-origin-bin
 dotnet-runtime-bin
+ghostty
+google-chrome
 gradle
+heroic-games-launcher-bin
+libretro-blastem
+libretro-desmume
+libretro-kronos
+libretro-ppsspp
+libretro-vice-git
 obsidian
+ollama
 omarchy-aarch64-keyring
 omarchy
 omarchy-settings
 omarchy-spice-guest-tools
+retroarch-joypad-autoconfig-git
+rustdesk
+t3code-bin
+voxtype-bin
+zed
+zen-browser-bin

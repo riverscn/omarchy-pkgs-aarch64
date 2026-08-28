@@ -9,6 +9,7 @@ source "$BUILD_ROOT/helpers/package-metadata.sh"
 PACKAGE=""
 DEST_DIR=""
 COMMIT_OVERRIDE=""
+AARCH64_SCOPE="$BUILD_ROOT/config/aarch64-packages"
 
 usage() {
   cat <<EOF
@@ -67,6 +68,11 @@ if [[ -z "$PACKAGE" ]]; then
   exit 1
 fi
 
+command -v vercmp >/dev/null 2>&1 || {
+  print_error "vercmp not found: pacman is required to preserve pkgrel ordering"
+  exit 1
+}
+
 PACKAGE_DIR="$PKGBUILDS_DIR/$PACKAGE"
 METADATA="$PACKAGE_DIR/.omarchy/package.json"
 
@@ -117,6 +123,11 @@ set_pkgrel() {
   local pkgrel="$2"
 
   sed -i "s/^pkgrel=.*/pkgrel=$pkgrel/" "$package_dir/PKGBUILD"
+}
+
+uses_aarch64_pkgrel_policy() {
+  [[ -f "$AARCH64_SCOPE" ]] &&
+    grep -Fxq "$PACKAGE" < <(sed -E '/^[[:space:]]*(#|$)/d' "$AARCH64_SCOPE")
 }
 
 copy_aur_contents() {
@@ -193,6 +204,11 @@ apply_pkgrel_metadata() {
 
   jq -e 'has("pkgrel")' "$metadata" >/dev/null || return 1
 
+  if uses_aarch64_pkgrel_policy; then
+    print_error "AArch64 package $PACKAGE tracks pkgrel directly; remove generic .pkgrel suffix metadata"
+    return 2
+  fi
+
   local current_pkgver suffix offset base
   current_pkgver=$(get_pkgbuild_field "$package_dir" pkgver)
 
@@ -213,8 +229,20 @@ apply_auto_pkgrel_suffix() {
   local package_dir="$1"
   local aur_pkgrel="$2"
 
-  print_info "  Applying automatic pkgrel suffix: $aur_pkgrel.1"
-  set_pkgrel "$package_dir" "$aur_pkgrel.1"
+  if uses_aarch64_pkgrel_policy; then
+    local current_pkgver pkgrel="$aur_pkgrel"
+    current_pkgver=$(get_pkgbuild_field "$package_dir" pkgver)
+    if [[ -n $PREVIOUS_PKGVER && $current_pkgver == "$PREVIOUS_PKGVER" &&
+          -n $CURRENT_PKGREL ]] &&
+       [[ $(vercmp "$CURRENT_PKGREL" "$aur_pkgrel") -gt 0 ]]; then
+      pkgrel=$CURRENT_PKGREL
+    fi
+    print_info "  Keeping upstream AArch64 pkgrel floor: $pkgrel"
+    set_pkgrel "$package_dir" "$pkgrel"
+  else
+    print_info "  Applying automatic pkgrel suffix: $aur_pkgrel.1"
+    set_pkgrel "$package_dir" "$aur_pkgrel.1"
+  fi
 }
 
 print_header "Package Worktree: $PACKAGE"
@@ -242,6 +270,7 @@ cp -a "$PACKAGE_DIR" "$CURRENT_DIR"
 
 AUR_PKGREL=$(get_pkgbuild_field "$UPSTREAM_DIR" pkgrel)
 PREVIOUS_PKGVER=$(get_pkgbuild_field "$PACKAGE_DIR" pkgver || true)
+CURRENT_PKGREL=$(get_pkgbuild_field "$PACKAGE_DIR" pkgrel || true)
 CUSTOMIZED=false
 PKGREL_APPLIED=false
 
@@ -266,6 +295,11 @@ fi
 
 if apply_pkgrel_metadata "$PATCHED_DIR" "$AUR_PKGREL" "$PREVIOUS_PKGVER"; then
   PKGREL_APPLIED=true
+else
+  pkgrel_status=$?
+  if [[ $pkgrel_status -eq 2 ]]; then
+    exit 1
+  fi
 fi
 
 if [[ "$CUSTOMIZED" == true && "$PKGREL_APPLIED" == false ]]; then

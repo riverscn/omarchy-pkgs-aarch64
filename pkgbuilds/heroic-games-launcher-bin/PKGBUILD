@@ -1,30 +1,102 @@
-# Maintainer: flaviofearn <heroicgameslauncher@protonmail.com>
-# Maintainer: CommandMC <kate@commandmc.de>
+# Maintainer: Omarchy AArch64 maintainers
+
+# Heroic does not publish a Linux ARM64 application archive. The application is
+# built from its tagged source and paired with the exact ARM64 helper binaries
+# selected by that release. The package name stays unchanged because it is the
+# name Omarchy installs and the source build still vendors Electron and helpers.
 
 pkgname=heroic-games-launcher-bin
 pkgver=2.22.1
 pkgrel=1
-pkgdesc="An Open source Launcher for Epic, Amazon and GOG Games"
-arch=('x86_64')
-url="https://heroicgameslauncher.com/"
+pkgdesc='Open source launcher for Epic, Amazon and GOG games (AArch64 source build)'
+arch=('aarch64')
+url='https://heroicgameslauncher.com/'
 license=('GPL-3.0-only')
-_filename=Heroic-2.22.1-linux-x64.pacman
-source=("https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher/releases/download/v2.22.1/Heroic-2.22.1-linux-x64.pacman")
-noextract=("Heroic-2.22.1-linux-x64.pacman")
-sha256sums=(66ed041a93ac2817b744d3d0985194adfa408c8d35f64d9a8967fa5e2a58f2c1)
-options=(!strip)
 depends=(
-  which
-  gtk3
+  'alsa-lib'
+  'at-spi2-core'
+  'cairo'
+  'dbus'
+  'expat'
+  'gcc-libs'
+  'glib2'
+  'glibc'
+  'gtk3'
+  'libcups'
+  'libdrm'
+  'libx11'
+  'libxcb'
+  'libxcomposite'
+  'libxdamage'
+  'libxext'
+  'libxfixes'
+  'libxkbcommon'
+  'libxrandr'
+  'mesa'
+  'nspr'
+  'nss'
+  'pango'
+  'systemd-libs'
+  'which'
 )
-provides=(heroic-games-launcher)
-conflicts=(heroic-games-launcher)
+makedepends=('corepack' 'nodejs' 'python')
+provides=("heroic-games-launcher=$pkgver")
+conflicts=('heroic-games-launcher')
+options=('!strip' '!debug')
 
-package() {
-  tar -xJv -C "$pkgdir" -f "$srcdir/$_filename" usr opt
-  mkdir "$pkgdir/usr/bin"
-  ln -s "/opt/Heroic/heroic" "$pkgdir/usr/bin/heroic"
+_legendary_tag=0.21.0
+_gogdl_tag=v1.3.0
+_nile_tag=v1.2.0
+_comet_tag=v0.2.0
+_epic_integration_tag=v0.4
+
+source=("$pkgname-$pkgver.tar.gz::https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('eb5c405e17ee794962ae8094b70de76b0f2ad73f29e5533460efa6e46f10cdbe')
+
+source_aarch64=(
+  "legendary-${_legendary_tag}-linux-arm64::https://github.com/legendary-gl/legendary/releases/download/${_legendary_tag}/legendary_linux_arm64"
+  "gogdl-${_gogdl_tag}-linux-arm64::https://github.com/Heroic-Games-Launcher/heroic-gogdl/releases/download/${_gogdl_tag}/gogdl_linux_arm64"
+  "nile-${_nile_tag}-linux-arm64::https://github.com/imLinguin/nile/releases/download/${_nile_tag}/nile_linux_arm64"
+  "comet-${_comet_tag}-linux-arm64::https://github.com/imLinguin/comet/releases/download/${_comet_tag}/comet-aarch64-unknown-linux-gnu"
+  "GalaxyCommunication-${_comet_tag}.exe::https://github.com/imLinguin/comet/releases/download/${_comet_tag}/GalaxyCommunication-dummy.exe"
+  "EpicGamesLauncher-${_epic_integration_tag}.exe::https://github.com/BananaWorks07/heroic-epic-integration/releases/download/${_epic_integration_tag}/EpicGamesLauncher.exe"
+)
+sha256sums_aarch64=(
+  'ed0a523c7310aec590a0da9ecdada185fc3b02e75fa5148c0e7ef0680095dce5'
+  'c49e1519146523ec94f33e2d21eedcc9a167004d7da218621e6d5fb84a7a0f4c'
+  '197859c629c47e4e4d7ed1d2a290b7bef1e778f891ff8ca42ba65dbb020ba751'
+  '7eca0d84d3c0b0e563a732a6300a20c115b5d60d25e44735d18e86a773b97a2f'
+  'abc208076a778ee738cae8451c9be7ab33c9787b0b69b2e7e4ffc70becc39e1e'
+  '1feb21e21e19cbb34e881791c8f2557769f59231e46850915d49a6d0c1ce4583'
+)
+
+prepare() {
+  cd "HeroicGamesLauncher-$pkgver"
+
+  install -Dm755 "$srcdir/legendary-${_legendary_tag}-linux-arm64" public/bin/arm64/linux/legendary
+  install -Dm755 "$srcdir/gogdl-${_gogdl_tag}-linux-arm64" public/bin/arm64/linux/gogdl
+  install -Dm755 "$srcdir/nile-${_nile_tag}-linux-arm64" public/bin/arm64/linux/nile
+  install -Dm755 "$srcdir/comet-${_comet_tag}-linux-arm64" public/bin/arm64/linux/comet
+  install -Dm644 "$srcdir/GalaxyCommunication-${_comet_tag}.exe" public/bin/x64/win32/GalaxyCommunication.exe
+  install -Dm644 "$srcdir/EpicGamesLauncher-${_epic_integration_tag}.exe" public/bin/x64/win32/EpicGamesLauncher.exe
+
+  HUSKY=0 corepack pnpm install --frozen-lockfile
 }
 
-# vim:set ts=2 sw=2 et: syntax=sh
+build() {
+  cd "HeroicGamesLauncher-$pkgver"
+  corepack pnpm exec electron-vite build
+  corepack pnpm exec electron-builder --linux pacman --arm64 --publish never
+}
 
+package() {
+  local archive="HeroicGamesLauncher-$pkgver/dist/Heroic-$pkgver-linux-arm64.pacman"
+  [[ -f $archive ]] || {
+    error "Heroic build did not produce $archive"
+    return 1
+  }
+
+  bsdtar -xf "$archive" -C "$pkgdir" usr opt
+  install -dm755 "$pkgdir/usr/bin"
+  ln -sf /opt/Heroic/heroic "$pkgdir/usr/bin/heroic"
+}

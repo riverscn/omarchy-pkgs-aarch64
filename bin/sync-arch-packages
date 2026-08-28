@@ -1,0 +1,76 @@
+#!/bin/bash
+
+set -euo pipefail
+
+BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
+PKGBUILDS_DIR="$BUILD_ROOT/pkgbuilds"
+temp_dir=$(mktemp -d)
+trap 'rm -rf "$temp_dir"' EXIT
+
+specific_packages=("$@")
+if (( ${#specific_packages[@]} == 0 )); then
+  mapfile -t specific_packages < <(
+    find "$PKGBUILDS_DIR" -mindepth 2 -maxdepth 2 -path '*/.omarchy/package.json' -print |
+      while IFS= read -r metadata; do
+        jq -e '.arch_package == true' "$metadata" >/dev/null && basename "$(dirname "$(dirname "$metadata")")"
+      done | sort
+  )
+fi
+
+for package in "${specific_packages[@]}"; do
+  target="$PKGBUILDS_DIR/$package"
+  metadata="$target/.omarchy/package.json"
+  [[ -f $metadata ]] || { echo "ERROR: missing metadata for $package" >&2; exit 1; }
+  jq -e '.source == "local" and .arch_package == true' "$metadata" >/dev/null || {
+    echo "ERROR: $package is not an Arch package source" >&2
+    exit 1
+  }
+
+  checkout="$temp_dir/$package.upstream"
+  staged="$temp_dir/$package.staged"
+  git clone --quiet --depth=1 \
+    "https://gitlab.archlinux.org/archlinux/packaging/packages/$package.git" "$checkout"
+  commit=$(git -C "$checkout" rev-parse HEAD)
+  current=$(jq -r '.upstream_commit // ""' "$metadata")
+  if [[ $commit == "$current" ]]; then
+    echo "$package is current at ${commit:0:12}"
+    continue
+  fi
+
+  mkdir -p "$staged"
+  find "$checkout" -maxdepth 1 -type f \
+    ! -name '.SRCINFO' ! -name '.nvchecker.toml' ! -name 'REUSE.toml' \
+    -exec cp -p -t "$staged" {} +
+  cp -a "$target/.omarchy" "$staged/.omarchy"
+  (
+    cd "$staged"
+    if [[ -f .omarchy/post-sync.sh ]]; then
+      bash .omarchy/post-sync.sh
+    fi
+    jq --arg commit "$commit" '.upstream_commit = $commit' .omarchy/package.json > .omarchy/package.json.new
+    mv .omarchy/package.json.new .omarchy/package.json
+  )
+
+  current_pkgver=$(bash -c 'source "$1" >/dev/null 2>&1; printf "%s" "$pkgver"' _ "$target/PKGBUILD")
+  current_pkgrel=$(bash -c 'source "$1" >/dev/null 2>&1; printf "%s" "$pkgrel"' _ "$target/PKGBUILD")
+  staged_pkgver=$(bash -c 'source "$1" >/dev/null 2>&1; printf "%s" "$pkgver"' _ "$staged/PKGBUILD")
+  staged_pkgrel=$(bash -c 'source "$1" >/dev/null 2>&1; printf "%s" "$pkgrel"' _ "$staged/PKGBUILD")
+  if [[ $current_pkgver == "$staged_pkgver" && -n $current_pkgrel ]] &&
+     [[ $(vercmp "$current_pkgrel" "$staged_pkgrel") -gt 0 ]]; then
+    sed -i "s/^pkgrel=.*/pkgrel=$current_pkgrel/" "$staged/PKGBUILD"
+  fi
+
+  srcinfo=$(cd "$staged" && makepkg --printsrcinfo)
+  grep -Eq '^[[:space:]]+arch = aarch64$' <<< "$srcinfo" || {
+    echo "ERROR: synchronized $package lost AArch64 support" >&2
+    exit 1
+  }
+
+  backup="$temp_dir/$package.backup"
+  mv "$target" "$backup"
+  if ! mv "$staged" "$target"; then
+    mv "$backup" "$target"
+    exit 1
+  fi
+  echo "Synchronized $package: ${current:0:12} -> ${commit:0:12}"
+done

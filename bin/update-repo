@@ -37,6 +37,8 @@ update_database() {
     -e MIRROR="$MIRROR" \
     -v "$BUILD_ROOT/pkgs.omarchy.org:/output" \
     -v "$BUILD_DIR:/build:ro" \
+    -v "$BUILD_ROOT/config:/config:ro" \
+    -v "$BUILD_ROOT/pkgbuilds:/pkgbuilds:ro" \
     "omarchy-pkg-builder:latest-$ARCH-$MIRROR" /build/update-repo.sh
 }
 

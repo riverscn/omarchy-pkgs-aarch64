@@ -1,0 +1,37 @@
+#!/bin/bash
+
+set -euo pipefail
+
+BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
+source "$BUILD_ROOT/helpers/package-metadata.sh"
+
+scope="$BUILD_ROOT/config/aarch64-packages"
+local_packages="$BUILD_ROOT/config/aarch64-local-packages"
+aur_packages=()
+upstream_packages=()
+arch_packages=()
+
+while IFS= read -r package; do
+  package_dir="$BUILD_ROOT/pkgbuilds/$package"
+  [[ -f $package_dir/.omarchy/package.json ]] || continue
+
+  # Exact and overlay recipes are synchronized once by sync-official-stable.
+  # Only local-policy packages need their AUR/vendor/Arch source polled here;
+  # avoiding an AUR sync that is immediately rolled back saves network and CI.
+  grep -Fxq "$package" < <(sed -E '/^[[:space:]]*(#|$)/d' "$local_packages") || continue
+
+  if package_sync_enabled "$package_dir"; then
+    aur_packages+=("$package")
+  fi
+  if package_has_upstream_hook "$package_dir" || package_has_upstream_provider "$package_dir"; then
+    upstream_packages+=("$package")
+  fi
+  if jq -e '.arch_package == true' "$package_dir/.omarchy/package.json" >/dev/null; then
+    arch_packages+=("$package")
+  fi
+done < <(sed -E '/^[[:space:]]*(#|$)/d' "$scope")
+
+(( ${#aur_packages[@]} == 0 )) || "$BUILD_ROOT/bin/sync-aur" "${aur_packages[@]}"
+(( ${#upstream_packages[@]} == 0 )) || "$BUILD_ROOT/bin/sync-upstream" "${upstream_packages[@]}"
+(( ${#arch_packages[@]} == 0 )) || "$BUILD_ROOT/bin/sync-arch-packages" "${arch_packages[@]}"
+"$BUILD_ROOT/bin/sync-official-stable"

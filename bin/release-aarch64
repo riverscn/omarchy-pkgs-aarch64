@@ -18,5 +18,6 @@ fi
 exec "$BUILD_ROOT/bin/repo" build \
   --arch aarch64 \
   --mirror stable \
+  --force-explicit \
   "$@" \
   --package "${packages[@]}"

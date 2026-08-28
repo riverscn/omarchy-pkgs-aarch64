@@ -4,7 +4,7 @@ pkgver=0.4.21
 pkgrel=2
 _pkgver=${pkgver}-${pkgrel}
 pkgdesc="LM Studio - A desktop app for exploring and running large language models locally"
-arch=('x86_64')
+arch=('x86_64' 'aarch64')
 url="https://lmstudio.ai"
 license=('EULA')
 depends=('fuse2' 'zlib' 'hicolor-icon-theme' 'gtk3' 'nss' 'libxcrypt-compat')
@@ -12,15 +12,21 @@ options=('!strip')
 install=lmstudio-bin.install
 provides=(lmstudio)
 conflicts=(lmstudio)
-source=("https://installers.lmstudio.ai/linux/x64/${_pkgver}/LM-Studio-${_pkgver}-x64.AppImage"
-         "lmstudio.png"
-         "lmstudio.desktop")
-sha256sums=('1014376d89d668c3814cd20e2b146a076146760ded1ef07b968fb61c58ded355'
-            '9f791789c959a11316328692807737a5f1bc1c170ae99ec04c56bfd8ee8263e5'
-            '635dec12f3e3a57136b9e6fd7c2839ed6da7287fa55b482d64debf6eacf36baa')
+source=(
+  "lmstudio.png"
+  "lmstudio.desktop"
+)
+source_x86_64=("LM-Studio.AppImage::https://installers.lmstudio.ai/linux/x64/${_pkgver}/LM-Studio-${_pkgver}-x64.AppImage")
+source_aarch64=("LM-Studio.AppImage::https://installers.lmstudio.ai/linux/arm64/${_pkgver}/LM-Studio-${_pkgver}-arm64.AppImage")
+sha256sums=(
+  '9f791789c959a11316328692807737a5f1bc1c170ae99ec04c56bfd8ee8263e5'
+  '635dec12f3e3a57136b9e6fd7c2839ed6da7287fa55b482d64debf6eacf36baa'
+)
+sha256sums_x86_64=('1014376d89d668c3814cd20e2b146a076146760ded1ef07b968fb61c58ded355')
+sha256sums_aarch64=('SKIP')
 
 prepare() {
-  chmod +x "${srcdir}/${source[0]##*/}"
+  chmod +x "${srcdir}/LM-Studio.AppImage"
 }
 
 package() {
@@ -28,7 +34,7 @@ package() {
   install -dm755 "$pkgdir/opt/lm-studio"
   
   # Install AppImage
-  install -Dm755 "${srcdir}/${source[0]##*/}" "$pkgdir/opt/lm-studio/lm-studio.AppImage"
+  install -Dm755 "${srcdir}/LM-Studio.AppImage" "$pkgdir/opt/lm-studio/lm-studio.AppImage"
   
   # Install static icon
   install -Dm644 "${srcdir}/lmstudio.png" "${pkgdir}/usr/share/icons/hicolor/512x512/apps/lmstudio-bin.png"

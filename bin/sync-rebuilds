@@ -11,6 +11,7 @@ trap 'rm -rf "$TEMP_DIR"' EXIT
 
 SPECIFIC_PACKAGES=()
 SELF_TEST=false
+AARCH64_SCOPE="$BUILD_ROOT/config/aarch64-packages"
 
 # Only the repositories a user actually installs from. A Qt release sitting in
 # testing or kde-unstable is not what the build container will link against, and
@@ -182,12 +183,12 @@ pkgbuild_field() {
   (cd "$package_dir" && env -u OMARCHY_SRC bash -c "source PKGBUILD 2>/dev/null; echo \"\${$field:-}\"")
 }
 
-# 2 -> 3, and 1.1 -> 1.2. Anything else is a pkgrel this command has no business
-# rewriting.
+# 2 -> 3, 1.1 -> 1.2, and 2.3.4 -> 2.3.5. Anything else is a pkgrel this
+# command has no business rewriting.
 bump_pkgrel() {
   local pkgrel="$1"
 
-  [[ "$pkgrel" =~ ^[0-9]+(\.[0-9]+)?$ ]] || return 1
+  [[ "$pkgrel" =~ ^[0-9]+(\.[0-9]+)*$ ]] || return 1
 
   local head tail
   if [[ "$pkgrel" == *.* ]]; then
@@ -199,6 +200,12 @@ bump_pkgrel() {
   fi
 
   echo "${head}$((tail + 1))"
+}
+
+uses_aarch64_pkgrel_policy() {
+  local package="$1"
+  [[ -f "$AARCH64_SCOPE" ]] &&
+    grep -Fxq "$package" < <(sed -E '/^[[:space:]]*(#|$)/d' "$AARCH64_SCOPE")
 }
 
 write_pkgrel() {
@@ -346,11 +353,14 @@ sync_package() {
   local pkgrel next_pkgrel
   pkgrel=$(pkgbuild_field "$package_dir" pkgrel)
 
-  # An AUR-synced package gets its PKGBUILD replaced wholesale on the next sync,
-  # so the bump only survives as the dotted Omarchy suffix that sync-aur
-  # reapplies from .omarchy/package.json.
+  # An unscoped AUR package records a generic Omarchy suffix in metadata so the
+  # bump survives its next wholesale sync. Scoped AArch64 packages track their
+  # complete pkgrel directly: sync-aur preserves that same-pkgver floor and
+  # resets to the upstream pkgrel when pkgver changes.
   local suffix=""
-  if package_sync_enabled "$package_dir"; then
+  if uses_aarch64_pkgrel_policy "$package"; then
+    next_pkgrel=$(bump_pkgrel "$pkgrel") || next_pkgrel=""
+  elif package_sync_enabled "$package_dir"; then
     if [[ "$pkgrel" == *.* ]]; then
       next_pkgrel=$(bump_pkgrel "$pkgrel") || next_pkgrel=""
       suffix="${next_pkgrel##*.}"
@@ -459,7 +469,7 @@ selftest_root() {
   local name="$1"
   local root="$TEMP_DIR/case-$name"
 
-  mkdir -p "$root/bin" "$root/helpers" "$root/pkgbuilds" "$root/stub"
+  mkdir -p "$root/bin" "$root/config" "$root/helpers" "$root/pkgbuilds" "$root/stub"
   cp "$BUILD_ROOT/bin/sync-rebuilds" "$root/bin/"
   cp "$BUILD_ROOT"/helpers/*.sh "$root/helpers/"
   echo "$root"
@@ -611,6 +621,17 @@ cmd_self_test() {
   check "pkgrel suffixed" "3.1" "$(pkgrel_of "$root/pkgbuilds/t-aur")"
   check "suffix recorded for the next AUR sync" 1 \
     "$(jq -r '.pkgrel.suffix' "$root/pkgbuilds/t-aur/.omarchy/package.json")"
+
+  echo "A scoped dotted pkgrel keeps its upstream components and bumps the last one:"
+  root=$(selftest_root aarch64-dotted)
+  printf 't-arm\n' > "$root/config/aarch64-packages"
+  selftest_package "$root" t-arm 2.3 '{"source":"aur","rebuild_on":["dep-a"],"rebuilt_against":{"dep-a":"0-0"}}'
+  selftest_pacman "$root" dep-a=1-1
+  selftest_published "$root"
+  check "run succeeds" 0 "$(run_case "$root")"
+  check "dotted pkgrel bumped" "2.4" "$(pkgrel_of "$root/pkgbuilds/t-arm")"
+  check "generic suffix metadata not introduced" false \
+    "$(jq 'has("pkgrel")' "$root/pkgbuilds/t-arm/.omarchy/package.json")"
 
   echo ""
   if [[ "$failures" -eq 0 ]]; then

@@ -1,4 +1,4 @@
 {
-  "source": "aur",
-  "upstream_commit": "44b4e963c69541700088a5719855d34f5cf16c85"
+  "source": "local",
+  "min_release_age": "24h"
 }

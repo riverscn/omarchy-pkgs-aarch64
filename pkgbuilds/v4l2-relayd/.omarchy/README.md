@@ -30,11 +30,11 @@ Updates `PKGBUILD` to:
 - add a `SKIP` checksum for the local patch file
 - apply the patch in `prepare()`
 
-## pkgrel
+## Architecture and pkgrel
 
-`package.json` includes a `pkgrel` suffix/offset so users who already received Omarchy's previous `0.2.0-2` build will upgrade to `0.2.0-2.1`.
-
-The `pkgrel` metadata is automatically removed by `bin/sync-aur` when AUR moves to a new `pkgver`.
+`post-sync.sh` adds AArch64 to the native package's architecture list. The
+recipe otherwise keeps the official stable `pkgrel` exactly, including a
+dotted value when that is what upstream publishes.
 
 ## Testing
 

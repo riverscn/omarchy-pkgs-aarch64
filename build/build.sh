@@ -82,13 +82,14 @@ EOF
       # every database and package with the pinned key imported above.
       repository_siglevel='Required TrustAll'
     fi
+    repository_server=${OMARCHY_REPOSITORY_SERVER:-file://$FINAL_OUTPUT_DIR}
     sudo tee -a /etc/pacman.conf > /dev/null <<EOF
 
 [omarchy]
 SigLevel = $repository_siglevel
-Server = file://$FINAL_OUTPUT_DIR
+Server = $repository_server
 EOF
-    echo "  -> omarchy (priority 2): $FINAL_OUTPUT_DIR"
+    echo "  -> omarchy (priority 2): $repository_server"
   fi
 
   # Sync pacman database
@@ -368,7 +369,7 @@ get_package_deps() {
   # Extract depends and makedepends, filter for packages in our pkgbuilds/
   (
     source "$pkgbuild" 2>/dev/null
-    echo "${depends[@]} ${makedepends[@]}"
+    echo "${depends[*]} ${makedepends[*]}"
   ) | tr ' ' '\n' | while read -r dep; do
     # Strip version constraints (e.g., 'hyprshade>=1.0' -> 'hyprshade')
     dep=$(echo "$dep" | sed 's/[<>=].*$//')
@@ -532,7 +533,7 @@ fi
 if [[ ${#PACKAGES_TO_BUILD[@]} -eq 0 ]]; then
   echo "==> All packages are up to date!"
 else
-  echo "==> ${#PACKAGES_TO_BUILD[@]} package(s) need building: ${PACKAGES_TO_BUILD[@]}"
+  echo "==> ${#PACKAGES_TO_BUILD[@]} package(s) need building: ${PACKAGES_TO_BUILD[*]}"
   echo "==> Determining build order based on dependencies..."
 
   # Second pass: order only the packages that need building
@@ -591,11 +592,11 @@ else
     exit 1
   fi
 
-  echo "==> Build order: ${ORDERED_PACKAGES[@]}"
+  echo "==> Build order: ${ORDERED_PACKAGES[*]}"
 
   if [[ "$DRY_RUN" == true ]]; then
     echo ""
-    echo "==> Dry run complete. Packages that would build: ${ORDERED_PACKAGES[@]}"
+    echo "==> Dry run complete. Packages that would build: ${ORDERED_PACKAGES[*]}"
     exit 0
   fi
 
@@ -612,7 +613,7 @@ else
   done
 
   if [[ ${#INSTALL_PACKAGES[@]} -gt 0 ]]; then
-    echo "==> Packages needed as dependencies: ${!INSTALL_PACKAGES[@]}"
+    echo "==> Packages needed as dependencies: ${!INSTALL_PACKAGES[*]}"
   fi
 
   # Build packages in dependency order

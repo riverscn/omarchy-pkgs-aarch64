@@ -14,7 +14,7 @@ pkgdesc="GitHub Copilot CLI brings the power of Copilot coding agent directly to
 url="https://github.com/github/copilot-cli"
 _urlraw="https://raw.githubusercontent.com/github/copilot-cli/v${pkgver}"
 
-arch=("x86_64")
+arch=("x86_64" "aarch64")
 
 license=("LicenseRef-GitHub-Copilot")
 
@@ -124,4 +124,3 @@ package() {
 	ln -sf "/usr/lib/node_modules/${_npmmodule}/LICENSE.md" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 
 }
-

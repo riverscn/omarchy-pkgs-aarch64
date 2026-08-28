@@ -73,8 +73,8 @@ while IFS= read -r package; do
           elif [[ $(stable_version_pkgver "$local_version") != "$(stable_version_pkgver "$official_version")" ]]; then
             echo "ERROR: overlay package $package uses $local_version over official $official_version" >&2
             ((failures += 1))
-          elif (( $(vercmp "$local_version" "$official_version") <= 0 )); then
-            echo "ERROR: overlay package $package $local_version must sort after official $official_version" >&2
+          elif (( $(vercmp "$local_version" "$official_version") < 0 )); then
+            echo "ERROR: overlay package $package $local_version must not sort before official $official_version" >&2
             ((failures += 1))
           fi
           ;;
@@ -108,7 +108,15 @@ input_digest=$(
     printf '%s\0' \
       "$BUILD_ROOT/bin/build" \
       "$BUILD_ROOT/bin/check-official-stable" \
+      "$BUILD_ROOT/bin/download-aarch64-baseline" \
+      "$BUILD_ROOT/bin/prepare-github-release" \
+      "$BUILD_ROOT/bin/promote-build" \
+      "$BUILD_ROOT/bin/publish-github-release" \
       "$BUILD_ROOT/bin/release-aarch64" \
+      "$BUILD_ROOT/bin/sign" \
+      "$BUILD_ROOT/bin/sign-database" \
+      "$BUILD_ROOT/bin/update-repo" \
+      "$BUILD_ROOT/.github/workflows/release-aarch64.yml" \
       "$SCOPE" "$LOCAL_PACKAGES" "$OVERLAY_PACKAGES"
     while IFS= read -r package; do
       find "$BUILD_ROOT/pkgbuilds/$package" -type f -print0

@@ -6,7 +6,7 @@ pkgver=0.24.0
 pkgrel=1
 _commit=302d75da596fc8d11ee0446a19b31c33c6676c2c
 pkgdesc='Grok Bot desktop agent'
-arch=('x86_64')
+arch=('x86_64' 'aarch64')
 url='https://x.ai/bot'
 license=('custom')
 depends=(
@@ -26,13 +26,17 @@ provides=('sand')
 conflicts=('sand')
 options=('!strip' '!debug')
 source=(
-  "${pkgname}_${pkgver}.deb::https://downloads.cursor.com/grokbot/stable/${_commit}/linux/x64/Grok_Bot_${pkgver}.deb"
-  'grok-bot.sh'
-  'grok-bot.desktop'
+  "grok-bot.sh"
+  "grok-bot.desktop"
 )
-sha256sums=('5fd091d63fa410717737797ae0b14967e4f1567cae201d10c834430e4807f32d'
-            '6dfa6c305941afa6cbaefbeaae06d05ab5a88f31630005d25a819a160c20c7a3'
-            '856056c9ca63dda5d01158ce8fb6a9a7cbb3f67c13a92b573cd196d3e50f26e7')
+source_x86_64=("${pkgname}_${pkgver}.deb::https://downloads.cursor.com/grokbot/stable/${_commit}/linux/x64/Grok_Bot_${pkgver}.deb")
+source_aarch64=("${pkgname}_${pkgver}.deb::https://downloads.cursor.com/grokbot/stable/${_commit}/linux/arm64/Grok_Bot_${pkgver}.deb")
+sha256sums=(
+  '6dfa6c305941afa6cbaefbeaae06d05ab5a88f31630005d25a819a160c20c7a3'
+  '856056c9ca63dda5d01158ce8fb6a9a7cbb3f67c13a92b573cd196d3e50f26e7'
+)
+sha256sums_x86_64=('5fd091d63fa410717737797ae0b14967e4f1567cae201d10c834430e4807f32d')
+sha256sums_aarch64=('SKIP')
 noextract=("${pkgname}_${pkgver}.deb")
 
 package() {

@@ -1,6 +1,24 @@
 name: Publish AArch64 stable repository
 
 on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/release-aarch64.yml
+      - bin/build
+      - bin/check-official-stable
+      - bin/download-aarch64-baseline
+      - bin/prepare-github-release
+      - bin/promote-build
+      - bin/publish-github-release
+      - bin/release-aarch64
+      - bin/sign
+      - bin/sign-database
+      - bin/update-repo
+      - build/**
+      - config/aarch64-*
+      - helpers/**
+      - pkgbuilds/**
   workflow_dispatch:
     inputs:
       force:
@@ -38,7 +56,7 @@ jobs:
               runuser -u runner -- ./bin/check-official-stable --json
             ' > repository-version-set.json
 
-      - name: Decide whether a snapshot is needed
+      - name: Decide whether the rolling repository needs an update
         id: plan
         env:
           FORCE: ${{ inputs.force || false }}
@@ -50,7 +68,7 @@ jobs:
             echo "should_build=true" >> "$GITHUB_OUTPUT"
           elif cmp -s repository-version-set.json "$published"; then
             echo "should_build=false" >> "$GITHUB_OUTPUT"
-            echo "The published AArch64 stable snapshot is current."
+            echo "The published AArch64 rolling repository is current."
           else
             echo "should_build=true" >> "$GITHUB_OUTPUT"
           fi
@@ -74,12 +92,14 @@ jobs:
         with:
           name: aarch64-version-set
 
-      - name: Seed the latest verified snapshot
+      - name: Seed the latest verified repository database
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./bin/download-aarch64-baseline
+        run: ./bin/download-aarch64-baseline --database-only
 
       - name: Build changed stable packages natively
+        env:
+          OMARCHY_REPOSITORY_SERVER: https://github.com/${{ github.repository }}/releases/latest/download
         run: |
           set -euo pipefail
           mapfile -t packages < <(sed -E '/^[[:space:]]*(#|$)/d' config/aarch64-packages)
@@ -115,18 +135,10 @@ jobs:
           name: aarch64-changed-packages
           path: build-output/stable/aarch64
 
-      - name: Assemble the complete unsigned snapshot
+      - name: Seed the published repository database
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          ./bin/download-aarch64-baseline
-          shopt -s nullglob
-          baseline=(pkgs.omarchy.org/stable/aarch64/*.pkg.tar.zst)
-          if (( ${#baseline[@]} > 0 )); then
-            cp --no-clobber -- "${baseline[@]}" build-output/stable/aarch64/
-          fi
-          rm -f build-output/stable/aarch64/.complete
+        run: ./bin/download-aarch64-baseline --database-only
 
       - name: Sign and validate the pacman repository
         env:
@@ -134,44 +146,7 @@ jobs:
           GPG_PASSPHRASE: ${{ secrets.AARCH64_GPG_PASSPHRASE }}
         run: ./bin/prepare-github-release --version-set repository-version-set.json
 
-      - name: Upload and verify a draft Release
-        id: release
+      - name: Incrementally publish the rolling Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          repo_dir=pkgs.omarchy.org/stable/aarch64
-          official_version=$(jq -r '.packages[] | select(.name == "omarchy") | .official_version' repository-version-set.json)
-          tag="repo-${official_version}.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-
-          gh release create "$tag" \
-            --draft \
-            --target "$GITHUB_SHA" \
-            --title "Omarchy AArch64 stable ${official_version}" \
-            --notes "Signed AArch64 pacman repository snapshot following pkgs.omarchy.org stable ${official_version}." \
-            "$repo_dir"/*.pkg.tar.zst \
-            "$repo_dir"/*.pkg.tar.zst.sig \
-            "$repo_dir"/omarchy.db \
-            "$repo_dir"/omarchy.db.sig \
-            "$repo_dir"/omarchy.db.tar.zst \
-            "$repo_dir"/omarchy.db.tar.zst.sig \
-            "$repo_dir"/omarchy.files \
-            "$repo_dir"/omarchy.files.sig \
-            "$repo_dir"/omarchy.files.tar.zst \
-            "$repo_dir"/omarchy.files.tar.zst.sig \
-            "$repo_dir"/omarchy-aarch64.gpg \
-            "$repo_dir"/repository-version-set.json \
-            "$repo_dir"/repository-manifest.json \
-            "$repo_dir"/SHA256SUMS
-
-          downloaded="$RUNNER_TEMP/release-assets"
-          mkdir -p "$downloaded"
-          gh release download "$tag" --dir "$downloaded"
-          (cd "$downloaded" && sha256sum -c SHA256SUMS)
-
-      - name: Publish the verified snapshot
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-        run: gh release edit "$RELEASE_TAG" --draft=false --latest
+        run: ./bin/publish-github-release

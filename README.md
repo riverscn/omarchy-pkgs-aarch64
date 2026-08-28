@@ -1,39 +1,52 @@
 # Omarchy AArch64 Package Repository
 
-This fork publishes the signed stable package channel used by generic AArch64
-virtual-machine images from
+This fork publishes the signed rolling package channel used by AArch64 Omarchy
+systems and by images from
 [`riverscn/omarchy-aarch64-image`](https://github.com/riverscn/omarchy-aarch64-image).
-It tracks `omacom-io/omarchy-pkgs` as its upstream build system, but only builds
-the explicitly maintained scope in [`config/aarch64-packages`](config/aarch64-packages).
+It tracks `omacom-io/omarchy-pkgs` as its upstream build system and maintains
+the 89 package bases in [`config/aarch64-packages`](config/aarch64-packages).
+These cover every ARM-relevant Omarchy package missing from the system
+repositories, including optional applications and ARM hardware integrations;
+x86-only applications and hardware drivers are intentionally excluded.
+The 45 remaining upstream package bases are classified explicitly in
+`config/aarch64-excluded-packages`; the test suite requires the included and
+excluded lists together to cover every `pkgbuilds/` directory.
 
-The channel follows package versions already admitted to
-`https://pkgs.omarchy.org/stable/x86_64`. Event-driven automation synchronizes
-generic recipes, downloads the latest verified Release as its build baseline,
-and compiles only changed packages natively on GitHub's Ubuntu 24.04 ARM runner.
-It then signs the complete package set and repository database, validates a
-fresh pacman transaction, and publishes an immutable GitHub Release snapshot.
-If the official version set has not changed, no new snapshot is produced.
+The source policy is explicit:
 
-The small downstream delta is explicit:
-
-- `config/aarch64-local-packages` lists AArch64- or VM-owned packages.
-- `config/aarch64-overlay-packages` lists official stable recipes carrying an
-  AArch64 patch.
-- all other scoped recipes must exactly match the official stable version.
+- the 26 entries in `config/aarch64-local-packages` follow an ARM vendor
+  artifact, AUR source package, Arch packaging source, or downstream source;
+- the 18 entries in `config/aarch64-overlay-packages` follow the official
+  Omarchy stable version while applying a reproducible AArch64 adaptation;
+- all remaining entries exactly follow the official Omarchy stable recipe;
 - `omarchy` and `omarchy-settings` are built in lockstep from versioned releases
   in [`riverscn/omarchy-aarch64`](https://github.com/riverscn/omarchy-aarch64).
 
-Architecture-related omissions are kept narrow. Obsidian uses its vendor's
-official Linux ARM64 archive; `dotnet-runtime-bin` follows Microsoft's ARM64
-runtime through the AUR `dotnet-core-bin` recipe. Pinta, Tensaku, and tzupdate
-stay on the versions admitted to the official stable Omarchy repository and
-carry only their required AArch64 packaging adaptations. Pinta's .NET SDK is a
-build dependency; the installed package and VM image contain only the runtime.
-`bindfs` follows AUR directly and carries only the missing AArch64 architecture
-declaration; it supports automatic host-share UID/GID mapping in the VM image.
+Ollama is split into `ollama` (CPU), `ollama-vulkan` (Apple/Asahi and other ARM
+Vulkan GPUs), `ollama-cuda`, `ollama-cuda-jetpack5`, and
+`ollama-cuda-jetpack6`. There is no ARM ROCm package. T3 Code and Voxtype retain
+the exact names Omarchy requests but are compiled from source because their
+upstream Linux binary packages are x86-only. Heroic retains the package name
+Omarchy requests but is built from tagged source with the official arm64 game
+service helpers. RustDesk uses its vendor's verified AArch64 Debian artifact.
 
-The latest Release is directly consumable as a pacman repository. Bootstrap its
-public key once, then install the keyring package so future key updates are
+A new upstream `pkgver` inherits upstream's complete `pkgrel` unchanged,
+including a dotted value. A same-source downstream rebuild increments only the
+last numeric component. `sync-aur` preserves a higher already-published
+same-`pkgver` release as an upgrade floor, then drops that historical floor as
+soon as upstream changes `pkgver`; it never invents an automatic `.1` suffix
+for the AArch64 scope.
+
+The publisher keeps one mutable GitHub Release. CI downloads only its signed
+database as a baseline, builds and transfers changed packages, uploads new
+versioned assets first, switches the signed database last, and removes assets no
+longer referenced by the database. Unchanged package archives are neither
+downloaded nor uploaded again. The stable `releases/latest/download` URL never
+changes, so existing pacman configuration and installed systems continue to
+receive packages through normal updates; an ISO reinstall is not required.
+
+The latest Release is directly consumable as a pacman repository. Bootstrap
+its public key once, then install the keyring package so future key updates are
 managed by pacman:
 
 ```bash
@@ -59,11 +72,12 @@ Useful maintainer commands:
 ./bin/sync-omarchy-aarch64 v4.0.1-aarch64.1 \
   --source ../omarchy-aarch64
 
-# Confirm every recipe follows the currently published official stable set.
+# Confirm every recipe follows the current policy and official stable set.
 ./bin/check-official-stable
 
-# Synchronize recipes without committing or pushing.
-./bin/sync-official-stable
+# Synchronize local AUR/vendor/Arch sources and official stable overlays.
+# This edits recipes only; it does not commit, push, build, or publish.
+./bin/sync-aarch64-sources
 
 # Inspect the complete stable AArch64 build plan without starting Docker.
 OMARCHY_SRC=../omarchy-aarch64 ./bin/release-aarch64 --dry-run
@@ -417,13 +431,17 @@ A package names those dependencies in `.omarchy/package.json`:
 
 The bump is the point of the command, and it has to land in git rather than in the builder. A rebuild that reuses the published version string produces a package pacman will never offer anyone, so merely unlocking the build gate would ship nothing. Bumping pkgrel needs no other change: `bin/check-versions` and the builder both already rebuild when pkgrel moves.
 
-For an AUR-synced package the bump is expressed as the dotted Omarchy pkgrel suffix in the metadata as well as in the PKGBUILD, because the next AUR sync replaces the PKGBUILD wholesale and would otherwise drop it.
+For an AUR-synced package outside the maintained AArch64 scope, the bump is expressed as the dotted Omarchy pkgrel suffix in metadata as well as in the PKGBUILD, because the next AUR sync replaces the PKGBUILD wholesale. Scoped AArch64 packages store their complete release directly: the last numeric component is incremented for a rebuild, and `sync-aur` preserves that floor only while the upstream `pkgver` is unchanged.
 
 The bumped version is checked against the published one as well as the checked-in one, and refused when pacman would not order it higher. The checked-in version is not the floor; what a user already has is, and a checkout that has fallen behind the repository can otherwise be bumped to something that loses to the package it means to replace. That check is skipped with a warning when the published database cannot be read.
 
 Versions are read from the local pacman database, so this runs on Arch or in an Arch container against a synced database. Only `core`, `extra` and `multilib` count: a Qt release sitting in testing or kde-unstable is not what the builder will link against, and rebuilding for it would ship a package built against the wrong ABI. The workflow points that database at `mirror.omarchy.org`, the mirror the x86_64 builder itself uses, because a mirror running ahead of the builder would record a version the build never linked against and nothing re-fires once the record matches.
 
-aarch64 is not covered. Those builds resolve Qt from Arch Linux ARM, which can lag Arch, so one record cannot describe both architectures. Only x86_64 is published today, so nothing currently ships from the untracked side; if ARM publishing starts, `rebuilt_against` has to become per-architecture before this can be trusted there.
+The upstream scheduled dependency-version lookup remains x86_64-specific and
+does not run in this fork. AArch64 packages such as `quickshell-git` instead
+receive upstream's admitted rebuild `pkgrel` through `sync-official-stable`.
+If `sync-rebuilds` is invoked manually for a scoped package, it preserves the
+complete release and increments its last numeric component.
 
 ### Other
 
@@ -583,7 +601,7 @@ Fields:
 - `aur`: optional AUR package name when it differs from the local package directory, usually for split packages.
 - `release_ring`: optional. `fast` means the package is built directly for stable as well as edge. Packages without a ring build in edge and reach stable through tested artifact promotion (`bin/repo migrate`).
 - `skip_build`: optional boolean; defaults to `false`. Set `true` to exclude a package from scheduled version checks and unscoped builds. The package can still be built explicitly with `bin/repo release --package <name>`.
-- `pkgrel`: optional Omarchy pkgrel suffix for a version-pinned rebuild bump. This emits `<aur pkgrel>.<suffix>` instead of replacing AUR's pkgrel. `offset` can be used only when preserving monotonic upgrades from old absolute pkgrel bumps. The metadata is removed automatically when AUR sync changes `pkgver`; the current package version is read from the checked-in PKGBUILD, so the version is not duplicated in JSON.
+- `pkgrel`: optional generic/x86 Omarchy suffix for a version-pinned rebuild bump. It is forbidden for packages in `config/aarch64-packages`, which store the complete upstream-respecting release directly. For other packages this emits `<aur pkgrel>.<suffix>`; `offset` exists only for migration from older absolute bumps.
 - `rebuild_on`: optional array of package names this package links against closely enough that it must be rebuilt when they change, independent of its own source. Read by `bin/sync-rebuilds`.
 - `rebuilt_against`: written by `bin/sync-rebuilds`. Records the version of each `rebuild_on` package that the current pkgrel was bumped for.
 - `upstream_commit`: set by `bin/sync-aur` for AUR packages. Used by `bin/package-worktree` to recreate the exact raw AUR package that Omarchy last synced.
@@ -662,7 +680,7 @@ bin/package-worktree package-name --dir /tmp/package-name-check
 diff -ruN /tmp/package-name-check/patched /tmp/package-name-check/current
 ```
 
-For dynamic changes that depend on the current upstream version, add `pkgbuilds/package-name/.omarchy/post-sync.sh`. The hook runs after the AUR package is copied into a temporary worktree and before the Omarchy pkgrel suffix is applied. After patches/hooks/metadata pkgrel overrides, `bin/sync-aur` removes AUR-only `.SRCINFO` and `.gitignore` files before writing the package back.
+For dynamic changes that depend on the current upstream version, add `pkgbuilds/package-name/.omarchy/post-sync.sh`. The hook runs after the AUR package is copied into a temporary worktree and before release-number policy is applied. AArch64-scoped packages retain upstream's complete `pkgrel` (or a higher same-version published floor); other customized AUR packages use the inherited suffix policy. Afterwards `bin/sync-aur` removes AUR-only `.SRCINFO` and `.gitignore` files before writing the package back.
 
 ### Custom Package
 
@@ -679,10 +697,11 @@ bin/repo release --package my-package
 - Mirrors: mirror.omarchy.org, rackspace, pkgbuild.com
 
 ### aarch64
-- QEMU emulation required on x86_64 hosts (slower)
+- GitHub releases build natively on an Ubuntu 24.04 ARM runner
+- QEMU emulation is needed only when building on an x86_64 host
 - Uses Arch Linux ARM repositories
-- Additional repos: `[alarm]`, `[aur]`
-- Same workflow, just add `--arch aarch64`
+- Publishes one signed rolling GitHub Release
+- Builds only the explicitly audited package scope
 
 ### Building for Both Architectures
 

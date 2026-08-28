@@ -28,8 +28,9 @@ recipe_version_at() {
   local inspect_dir="$temp_dir/inspect-$package"
   rm -rf "$inspect_dir"
   mkdir -p "$inspect_dir"
-  git -C "$BUILD_ROOT" show "$commit:pkgbuilds/$package/PKGBUILD" > "$inspect_dir/PKGBUILD" 2>/dev/null || return 1
-  stable_local_version "$inspect_dir"
+  git -C "$BUILD_ROOT" archive "$commit" "pkgbuilds/$package" 2>/dev/null |
+    bsdtar -xf - -C "$inspect_dir" || return 1
+  stable_local_version "$inspect_dir/pkgbuilds/$package"
 }
 
 find_stable_recipe_commit() {
@@ -114,12 +115,13 @@ sync_overlay_recipe() {
 
   [[ -n $wanted ]] || { echo "ERROR: overlay package $package is absent from official stable" >&2; return 1; }
   current=$(stable_local_version "$BUILD_ROOT/pkgbuilds/$package")
-  if [[ $(stable_version_pkgver "$current") == "$(stable_version_pkgver "$wanted")" ]] &&
-     (( $(vercmp "$current" "$wanted") > 0 )); then
+  if [[ "$current" == "$wanted" ]] ||
+     { [[ $(stable_version_pkgver "$current") == "$(stable_version_pkgver "$wanted")" ]] &&
+       (( $(vercmp "$current" "$wanted") > 0 )); }; then
     return 0
   fi
 
-  local commit overlay_backup target official_pkgrel overlay_suffix
+  local commit overlay_backup target official_pkgrel
   commit=$(find_stable_recipe_commit "$package" "$wanted") || {
     echo "ERROR: no upstream recipe for stable overlay $package $wanted" >&2
     return 1
@@ -135,12 +137,11 @@ sync_overlay_recipe() {
   apply_overlay_customizations "$package" "$target"
 
   official_pkgrel=$(stable_version_pkgrel "$wanted")
-  overlay_suffix=$(jq -r '.pkgrel.suffix // 1' "$target/.omarchy/package.json")
-  [[ $overlay_suffix =~ ^[1-9][0-9]*$ ]] || {
-    echo "ERROR: invalid overlay pkgrel suffix for $package: $overlay_suffix" >&2
+  [[ -n $official_pkgrel ]] || {
+    echo "ERROR: official stable has an empty pkgrel for $package" >&2
     return 1
   }
-  sed -i "s/^pkgrel=.*/pkgrel=${official_pkgrel}.${overlay_suffix}/" "$target/PKGBUILD"
+  sed -i "s/^pkgrel=.*/pkgrel=${official_pkgrel}/" "$target/PKGBUILD"
 }
 
 sync_omarchy_pair() {

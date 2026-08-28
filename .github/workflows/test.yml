@@ -31,6 +31,7 @@ jobs:
               groupadd -g "$HOST_GID" runner
               useradd -m -u "$HOST_UID" -g "$HOST_GID" runner
               runuser -u runner -- ./test/aarch64-downstream-test.sh
+              runuser -u runner -- ./test/rolling-release-test.sh
               ./bin/sync-upstream self-test
               ./bin/omarchy-pkgs self-test
             '

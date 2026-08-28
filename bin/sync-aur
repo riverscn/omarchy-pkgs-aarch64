@@ -10,6 +10,7 @@ TEMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TEMP_DIR"' EXIT
 
 SPECIFIC_PACKAGES=()
+AARCH64_SCOPE="$BUILD_ROOT/config/aarch64-packages"
 
 usage() {
   cat <<EOF
@@ -55,6 +56,11 @@ done
 print_header "AUR Package Sync"
 mkdir -p "$PKGBUILDS_DIR"
 
+command -v vercmp >/dev/null 2>&1 || {
+  print_error "vercmp not found: pacman is required to preserve pkgrel ordering"
+  exit 1
+}
+
 SYNCED=0
 SKIPPED=0
 FAILED=0
@@ -94,6 +100,15 @@ display_package_name() {
   local name
   name=$(basename "$package_dir")
   echo "${name%.work}"
+}
+
+uses_aarch64_pkgrel_policy() {
+  local package_dir="$1"
+  local package
+  package=$(display_package_name "$package_dir")
+
+  [[ -f "$AARCH64_SCOPE" ]] &&
+    grep -Fxq "$package" < <(sed -E '/^[[:space:]]*(#|$)/d' "$AARCH64_SCOPE")
 }
 
 remove_aur_only_files() {
@@ -229,8 +244,23 @@ run_omarchy_post_sync_hook() {
 apply_pkgrel_suffix_if_customized() {
   local package_dir="$1"
   local aur_pkgrel="$2"
+  local previous_pkgver="${3:-}"
+  local previous_pkgrel="${4:-}"
 
   [[ -n "$aur_pkgrel" ]] || return 0
+
+  if uses_aarch64_pkgrel_policy "$package_dir"; then
+    local current_pkgver pkgrel="$aur_pkgrel"
+    current_pkgver=$(get_pkgbuild_field "$package_dir" pkgver)
+    if [[ -n $previous_pkgver && $current_pkgver == "$previous_pkgver" &&
+          -n $previous_pkgrel ]] &&
+       [[ $(vercmp "$previous_pkgrel" "$aur_pkgrel") -gt 0 ]]; then
+      pkgrel=$previous_pkgrel
+    fi
+    print_info "Keeping upstream AArch64 pkgrel floor for $(display_package_name "$package_dir"): pkgrel=$pkgrel"
+    set_pkgrel "$package_dir" "$pkgrel"
+    return 0
+  fi
 
   print_info "Applying Omarchy pkgrel suffix for $(display_package_name "$package_dir"): pkgrel=$aur_pkgrel.1"
   set_pkgrel "$package_dir" "$aur_pkgrel.1"
@@ -245,6 +275,11 @@ apply_pkgrel_override() {
 
   [[ -f "$metadata" ]] || return 1
   jq -e 'has("pkgrel")' "$metadata" >/dev/null || return 1
+
+  if uses_aarch64_pkgrel_policy "$package_dir"; then
+    print_error "AArch64 package $(display_package_name "$package_dir") tracks pkgrel directly; remove generic .pkgrel suffix metadata"
+    return 2
+  fi
 
   local current_pkgver suffix offset base rel tmpfile
   # Read through the same accessor that produced previous_pkgver. Parsing it a
@@ -350,9 +385,10 @@ sync_package() {
 
   local aur_dir="$TEMP_DIR/$aur_package"
   local work_dir="$TEMP_DIR/${package}.work"
-  local aur_pkgrel previous_pkgver upstream_commit
+  local aur_pkgrel previous_pkgver previous_pkgrel upstream_commit
   aur_pkgrel=$(get_pkgbuild_field "$aur_dir" pkgrel)
   previous_pkgver=$(get_pkgbuild_field "$package_dir" pkgver || true)
+  previous_pkgrel=$(get_pkgbuild_field "$package_dir" pkgrel || true)
   upstream_commit=$(git -C "$aur_dir" rev-parse HEAD)
 
   rm -rf "$work_dir"
@@ -394,7 +430,7 @@ sync_package() {
   esac
 
   if [[ "$customized" == true && "$pkgrel_overridden" == false ]]; then
-    apply_pkgrel_suffix_if_customized "$work_dir" "$aur_pkgrel"
+    apply_pkgrel_suffix_if_customized "$work_dir" "$aur_pkgrel" "$previous_pkgver" "$previous_pkgrel"
   fi
 
   remove_aur_only_files "$work_dir"

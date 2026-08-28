@@ -5,12 +5,14 @@ set -euo pipefail
 BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
 repository=${GITHUB_REPOSITORY:-riverscn/omarchy-pkgs-aarch64}
 destination="$BUILD_ROOT/pkgs.omarchy.org/stable/aarch64"
+database_only=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repository) repository=$2; shift 2 ;;
     --destination) destination=$(realpath -m "$2"); shift 2 ;;
-    *) echo "Usage: $0 [--repository owner/repo] [--destination path]" >&2; exit 1 ;;
+    --database-only) database_only=true; shift ;;
+    *) echo "Usage: $0 [--repository owner/repo] [--destination path] [--database-only]" >&2; exit 1 ;;
   esac
 done
 
@@ -18,7 +20,7 @@ command -v gh >/dev/null || { echo "ERROR: gh is required" >&2; exit 1; }
 command -v sha256sum >/dev/null || { echo "ERROR: sha256sum is required" >&2; exit 1; }
 
 if ! release_tag=$(gh release view --repo "$repository" --json tagName --jq .tagName 2>/dev/null); then
-  echo "No published AArch64 snapshot found; starting without a baseline."
+  echo "No published AArch64 rolling repository found; starting without a baseline."
   exit 0
 fi
 
@@ -28,37 +30,50 @@ trap 'rm -rf "$staging"' EXIT
 gh release download "$release_tag" \
   --repo "$repository" \
   --dir "$staging" \
-  --pattern '*.pkg.tar.zst' \
-  --pattern '*.pkg.tar.zst.sig' \
   --pattern 'omarchy.db' \
   --pattern 'omarchy.db.sig' \
   --pattern 'omarchy.db.tar.zst' \
   --pattern 'omarchy.db.tar.zst.sig' \
+  --pattern 'omarchy.files' \
+  --pattern 'omarchy.files.sig' \
+  --pattern 'omarchy.files.tar.zst' \
+  --pattern 'omarchy.files.tar.zst.sig' \
+  --pattern 'repository-version-set.json' \
+  --pattern 'repository-manifest.json' \
+  --pattern 'omarchy-aarch64.gpg' \
   --pattern 'SHA256SUMS'
+
+if [[ $database_only == false ]]; then
+  gh release download "$release_tag" \
+    --repo "$repository" \
+    --dir "$staging" \
+    --pattern '*.pkg.tar.zst' \
+    --pattern '*.pkg.tar.zst.sig'
+fi
 
 [[ -f $staging/SHA256SUMS ]] || { echo "ERROR: baseline lacks SHA256SUMS" >&2; exit 1; }
 [[ -f $staging/omarchy.db.tar.zst ]] || { echo "ERROR: baseline lacks repository database" >&2; exit 1; }
 [[ -f $staging/omarchy.db.tar.zst.sig ]] || { echo "ERROR: baseline lacks repository database signature" >&2; exit 1; }
 [[ -f $staging/omarchy.db ]] || { echo "ERROR: baseline lacks pacman database alias" >&2; exit 1; }
 [[ -f $staging/omarchy.db.sig ]] || { echo "ERROR: baseline lacks pacman database alias signature" >&2; exit 1; }
-packages=("$staging"/*.pkg.tar.zst)
-[[ -f ${packages[0]} ]] || { echo "ERROR: baseline contains no packages" >&2; exit 1; }
-for package in "${packages[@]}"; do
-  [[ -f $package.sig ]] || {
-    echo "ERROR: baseline package lacks signature: ${package##*/}" >&2
-    exit 1
-  }
-done
-
 (cd "$staging" && sha256sum --check --ignore-missing SHA256SUMS)
 
 mkdir -p "$destination"
-cp -- \
-  "$staging"/*.pkg.tar.zst \
-  "$staging"/*.pkg.tar.zst.sig \
-  "$staging/omarchy.db" \
-  "$staging/omarchy.db.sig" \
-  "$staging/omarchy.db.tar.zst" \
-  "$staging/omarchy.db.tar.zst.sig" \
-  "$destination/"
-echo "Seeded ${#packages[@]} packages from Release $release_tag."
+cp -- "$staging"/* "$destination/"
+cp "$staging/SHA256SUMS" "$destination/.baseline-SHA256SUMS"
+printf '%s\n' "$release_tag" > "$destination/.baseline-release-tag"
+
+if [[ $database_only == true ]]; then
+  echo "Seeded the signed repository database from Release $release_tag."
+else
+  shopt -s nullglob
+  packages=("$staging"/*.pkg.tar.zst)
+  [[ ${#packages[@]} -gt 0 ]] || { echo "ERROR: baseline contains no packages" >&2; exit 1; }
+  for package in "${packages[@]}"; do
+    [[ -f $package.sig ]] || {
+      echo "ERROR: baseline package lacks signature: ${package##*/}" >&2
+      exit 1
+    }
+  done
+  echo "Seeded ${#packages[@]} packages from Release $release_tag."
+fi

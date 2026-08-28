@@ -1,19 +1,28 @@
-# Packages maintained by the generic AArch64 VM release channel.
+# Complete package-base scope for the rolling AArch64 repository.
 #
-# Keep this list aligned with the signed package scope consumed by
-# omarchy-aarch64-image. Gradle is a build-time dependency of the Limine tools;
-# the remaining entries are runtime packages.
+# Package names must match the names requested by Omarchy. ARM hardware support
+# is in scope; x86-only applications and hardware drivers are deliberately not.
+# Keep dependency producers before their consumers where practical because the
+# explicit builder processes this file in order.
+
+# Repository bootstrap and build dependencies
 bindfs
 dotnet-runtime-bin
 gradle
 omarchy-aarch64-keyring
 omarchy-keyring
+
+# Omarchy runtime
 limine-mkinitcpio-hook
 limine-snapper-sync
 omarchy-settings
 omarchy
 omarchy-spice-guest-tools
 aether
+basecamp-cli
+omarchy-audio-tuner
+omarchy-fish
+omarchy-zsh
 cliamp
 herdr
 localsend
@@ -21,16 +30,76 @@ mise-bin
 obsidian
 omacalc
 omacut
-omawrite
+omarchy-emacs
 omarchy-nvim
+omawrite
+omazed
 pinta
 tensaku
-ttfx
 tobi-try
 ttf-ia-writer
 ttf-jetbrains-mono-nerd-basic
+ttfx
 tzupdate
 ufw-docker
 xdg-terminal-exec
 yaru-icon-theme
 yay
+
+# Applications and developer tools
+1password-cli
+1password
+bitwarden
+brave-bin
+brave-origin-bin
+bun-bin
+crush-bin
+cursor-cli
+cursor-bin
+dbxcli-bin
+ghostty
+github-copilot-cli
+google-chrome
+grok-bot
+hermes-desktop
+heroic-games-launcher-bin
+hyprshade
+lmstudio-bin
+nautilus-open-any-terminal
+nordvpn-bin
+ollama
+omasnap
+omatrack
+once-bin
+openai-codex-desktop
+quickshell-git
+rustdesk
+sublime-text-4
+sunshine
+symfony-cli
+t3code-bin
+typora
+visual-studio-code-bin
+voxtype-bin
+zed
+zen-browser-bin
+
+# ARM-compatible hardware integration
+asdcontrol
+hyprland-preview-share-picker
+qmk-hid
+v4l2-relayd
+xpadneo-dkms
+yt6801-dkms
+
+# RetroArch cores missing from Arch Linux ARM or maintained by Omarchy
+libretro-blastem
+libretro-cap32-git
+libretro-database-git
+libretro-desmume
+libretro-fbneo-git
+libretro-kronos
+libretro-ppsspp
+libretro-uae-git
+libretro-vice-git
+retroarch-joypad-autoconfig-git

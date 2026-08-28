@@ -1,5 +1,0 @@
-[voxtype-bin]
-source = "github"
-github = "peteonrails/voxtype"
-use_latest_release = true
-prefix = "v"

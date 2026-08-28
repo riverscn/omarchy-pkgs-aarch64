@@ -182,6 +182,10 @@ DOCKER_ARGS=(
   -v "$BUILD_ROOT/pkgbuilds:/pkgbuilds:ro"
 )
 
+if [[ -n ${OMARCHY_REPOSITORY_SERVER:-} ]]; then
+  DOCKER_ARGS+=( -e OMARCHY_REPOSITORY_SERVER="$OMARCHY_REPOSITORY_SERVER" )
+fi
+
 if [[ -n ${OMARCHY_SRC:-} ]]; then
   DOCKER_ARGS+=(
     -e OMARCHY_SRC=/omarchy-src

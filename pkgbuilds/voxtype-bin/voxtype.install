@@ -1,0 +1,108 @@
+_detect_gpu() {
+    # Detect GPU for acceleration recommendation
+    GPU_DETECTED=""
+    GPU_VENDOR=""
+    if [ -d /dev/dri ]; then
+        if ls /dev/dri/renderD* >/dev/null 2>&1; then
+            if command -v lspci >/dev/null 2>&1; then
+                GPU_INFO=$(lspci 2>/dev/null | grep -i 'vga\|3d\|display' | head -1 | sed 's/.*: //')
+                if [ -n "$GPU_INFO" ]; then
+                    GPU_DETECTED="$GPU_INFO"
+                    case "$GPU_INFO" in
+                        *NVIDIA*|*GeForce*|*RTX*|*GTX*) GPU_VENDOR="nvidia" ;;
+                        *AMD*|*Radeon*) GPU_VENDOR="amd" ;;
+                        *Intel*) GPU_VENDOR="intel" ;;
+                    esac
+                fi
+            fi
+            if [ -z "$GPU_DETECTED" ]; then
+                GPU_DETECTED="GPU detected (install pciutils for details)"
+            fi
+        fi
+    fi
+
+    if [ -n "$GPU_DETECTED" ]; then
+        echo ""
+        echo "    GPU detected: $GPU_DETECTED"
+        echo ""
+        echo "    For GPU acceleration, run:"
+        echo "      sudo voxtype setup gpu --enable"
+        echo ""
+        if [ "$GPU_VENDOR" = "nvidia" ]; then
+            echo "    Whisper: requires vulkan-icd-loader"
+            echo "    Parakeet: requires cuda package"
+        elif [ "$GPU_VENDOR" = "amd" ]; then
+            echo "    Whisper: requires vulkan-icd-loader"
+            echo "    Parakeet: requires rocm-hip-runtime"
+        else
+            echo "    Requires: vulkan-icd-loader package"
+        fi
+    fi
+}
+
+post_install() {
+    echo ""
+    echo "==> Voxtype Post-installation Steps:"
+    echo ""
+
+    _detect_gpu
+
+    echo ""
+    echo "    1. Add your user to the 'input' group:"
+    echo "       sudo usermod -aG input \$USER"
+    echo ""
+    echo "    2. Log out and back in for group changes to take effect"
+    echo ""
+    echo "    3. Download a model (Whisper or Parakeet):"
+    echo "       voxtype setup model"
+    echo ""
+    echo "    4. Start voxtype:"
+    echo "       systemctl --user enable --now voxtype"
+    echo ""
+    # Check if ONNX engines were built
+    if [ -f /usr/lib/voxtype/voxtype-onnx ] || [ -f /usr/lib/voxtype/voxtype-onnx-avx2 ]; then
+        echo "    ONNX engines available (SenseVoice, Parakeet, Moonshine, etc.)"
+    else
+        echo "    For ONNX engines: install onnxruntime and rebuild"
+    fi
+    echo ""
+}
+
+post_upgrade() {
+    echo ""
+    echo "==> Voxtype upgraded to 0.7.2"
+    echo ""
+
+    _detect_gpu
+
+    echo ""
+    echo "    What's new in v0.7.2:"
+    echo "      * Streaming dictation (experimental): Parakeet types text at the"
+    echo "        cursor while you speak. Requires [hotkey] mode = toggle, or a"
+    echo "        compositor binding to 'voxtype record toggle'."
+    echo "      * Modifier-release guard (#350): waits for held modifier keys"
+    echo "        (Super/Ctrl/Alt/Shift) to release before typing, so chord"
+    echo "        keybindings no longer collide with the first typed letters."
+    echo "      * Notification stacking fix (#345): status notifications now"
+    echo "        overwrite each other instead of piling up in GNOME/Ubuntu."
+    echo "      * Streaming state icon in Waybar + all 9 status themes."
+    echo ""
+    # Check if ONNX engines were built
+    if [ -f /usr/lib/voxtype/voxtype-onnx ] || [ -f /usr/lib/voxtype/voxtype-onnx-avx2 ]; then
+        echo "    ONNX engines available (Parakeet, Moonshine, SenseVoice, Paraformer,"
+        echo "    Dolphin, Omnilingual, Cohere)."
+    else
+        echo "    For ONNX engines: install onnxruntime and rebuild from source."
+    fi
+    echo ""
+    echo "    Restart the daemon to apply updates:"
+    echo "      systemctl --user restart voxtype"
+    echo ""
+    echo "    Full release notes:"
+    echo "      https://github.com/peteonrails/voxtype/releases/tag/v0.7.2"
+    echo ""
+}
+
+post_remove() {
+    rm -f /usr/bin/voxtype
+}

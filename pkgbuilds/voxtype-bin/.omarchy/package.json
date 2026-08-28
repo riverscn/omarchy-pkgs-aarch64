@@ -1,5 +1,6 @@
 {
   "source": "aur",
+  "aur": "voxtype",
   "release_ring": "fast",
-  "upstream_commit": "75f0642fe2a2403eecad1d5d8022fff7f3998a8f"
+  "upstream_commit": "fd34d207bc4398637f0dded5faa93f28533e8e56"
 }

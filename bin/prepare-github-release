@@ -25,7 +25,6 @@ signing_fingerprint=$(<"$BUILD_ROOT/config/aarch64-signing-fingerprint")
 
 "$BUILD_ROOT/bin/sign" --arch aarch64 --mirror stable
 "$BUILD_ROOT/bin/promote-build" --arch aarch64 --mirror stable
-"$BUILD_ROOT/bin/clean-repo" --arch aarch64 --mirror stable
 "$BUILD_ROOT/bin/update-repo" --arch aarch64 --mirror stable
 "$BUILD_ROOT/bin/sign-database" --arch aarch64 --mirror stable
 
@@ -43,6 +42,7 @@ trap 'rm -rf "$verify_home"' EXIT
 chmod 700 "$verify_home"
 GNUPGHOME=$verify_home gpg --batch --import "$public_key" >/dev/null 2>&1
 
+shopt -s nullglob
 for package in "$repo"/*.pkg.tar.zst; do
   [[ -f $package.sig ]] || { echo "ERROR: missing signature for ${package##*/}" >&2; exit 1; }
   GNUPGHOME=$verify_home gpg --batch --verify "$package.sig" "$package" >/dev/null 2>&1
@@ -53,27 +53,63 @@ done
 
 read -r -a platform_args <<< "$(get_platform_arg aarch64)"
 docker run --rm "${platform_args[@]}" --user root \
+  -e REMOTE_REPOSITORY_SERVER="https://github.com/${GITHUB_REPOSITORY:-riverscn/omarchy-pkgs-aarch64}/releases/latest/download" \
   -v "$repo:/repository:ro" \
   -v "$BUILD_ROOT/config:/config:ro" \
   -v "$BUILD_ROOT/pkgbuilds/omarchy-aarch64-keyring:/public:ro" \
   -v "$BUILD_ROOT/build:/build:ro" \
   omarchy-pkg-builder:latest-aarch64-stable /build/validate-repository.sh
 
+mapfile -t database_filenames < <(
+  docker run --rm "${platform_args[@]}" \
+    -v "$repo:/repository:ro" \
+    omarchy-pkg-builder:latest-aarch64-stable \
+    bash -c 'bsdtar -xOf /repository/omarchy.db.tar.zst "*/desc" | awk '\''$0 == "%FILENAME%" { getline; print }'\'' | sort -u'
+)
+(( ${#database_filenames[@]} > 0 )) || {
+  echo "ERROR: repository database contains no package filenames" >&2
+  exit 1
+}
+
 jq -S -n \
   --slurpfile state "$repo/repository-version-set.json" \
   --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg signing_fingerprint "$signing_fingerprint" \
-  '{schema: 1, generated_at: $generated_at, signing_fingerprint: $signing_fingerprint, state: $state[0]}' \
+  --args "${database_filenames[@]}" \
+  '{schema: 2, generated_at: $generated_at, signing_fingerprint: $signing_fingerprint, state: $state[0], packages: $ARGS.positional}' \
   > "$repo/repository-manifest.json"
+
+baseline_sums="$repo/.baseline-SHA256SUMS"
+new_sums=$(mktemp)
+baseline_line_for() {
+  local wanted="$1"
+  awk -v wanted="$wanted" '
+    { name=$2; sub(/^\*/, "", name) }
+    name == wanted && $1 ~ /^[0-9a-f]{64}$/ { print; exit }
+  ' "$baseline_sums"
+}
+
+for filename in "${database_filenames[@]}"; do
+  for asset in "$filename" "$filename.sig"; do
+    if [[ -f $repo/$asset ]]; then
+      (cd "$repo" && sha256sum -- "$asset") >> "$new_sums"
+    elif [[ -f $baseline_sums ]] && line=$(baseline_line_for "$asset") && [[ -n $line ]]; then
+      printf '%s\n' "$line" >> "$new_sums"
+    else
+      echo "ERROR: no local file or published checksum for $asset" >&2
+      exit 1
+    fi
+  done
+done
 
 (
   cd "$repo"
   sha256sum -- \
-    *.pkg.tar.zst *.pkg.tar.zst.sig \
     omarchy.db omarchy.db.sig omarchy.db.tar.zst omarchy.db.tar.zst.sig \
     omarchy.files omarchy.files.sig omarchy.files.tar.zst omarchy.files.tar.zst.sig \
-    omarchy-aarch64.gpg repository-version-set.json repository-manifest.json | \
-    sort -k2 > SHA256SUMS
-)
+    omarchy-aarch64.gpg repository-version-set.json repository-manifest.json
+) >> "$new_sums"
+sort -k2 -u "$new_sums" > "$repo/SHA256SUMS"
+rm -f "$new_sums"
 
 echo "Prepared and validated GitHub Release assets in $repo"
