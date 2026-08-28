@@ -315,6 +315,7 @@ grep -Fq 'aarch64-changed-packages' "$ROOT/.github/workflows/release-aarch64.yml
 grep -Fq -- '--allow-partial' "$ROOT/.github/workflows/release-aarch64.yml" || fail "workflow blocks all publication after one package failure"
 grep -Fq 'failed_packages' "$ROOT/bin/write-aarch64-release-state" || fail "partial releases do not remain pending for retry"
 grep -Fq 'makepkg --printsrcinfo' "$ROOT/build/validate-repository.sh" || fail "repository validation does not expand split-package outputs"
+grep -Fq 'PKGDEST="$2"' "$ROOT/build/validate-repository.sh" || fail "repository validation cannot inspect read-only PKGBUILD mounts"
 grep -Fq ':/pkgbuilds:ro' "$ROOT/bin/prepare-github-release" || fail "repository validation cannot inspect package outputs"
 grep -Fq 'tar -cf aarch64-changed-packages.tar' "$ROOT/.github/workflows/release-aarch64.yml" || fail "workflow exposes pacman epoch colons to GitHub artifact validation"
 grep -Fq 'tar -xf "$RUNNER_TEMP/aarch64-changed-packages/aarch64-changed-packages.tar"' "$ROOT/.github/workflows/release-aarch64.yml" || fail "workflow does not restore exact pacman filenames after artifact transfer"

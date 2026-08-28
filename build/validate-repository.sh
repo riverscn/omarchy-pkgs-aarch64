@@ -73,6 +73,8 @@ if [[ -f $release_state ]]; then
 fi
 
 available_packages=()
+srcinfo_work=/tmp/makepkg-srcinfo
+install -d -o builder -g builder "$srcinfo_work"
 for package_base in "${packages[@]}"; do
   if [[ -n ${failed_packages[$package_base]:-} ]]; then
     echo "WARNING: newly pending package base is not yet published: $package_base" >&2
@@ -85,7 +87,8 @@ for package_base in "${packages[@]}"; do
     exit 1
   }
   if ! srcinfo=$(runuser -u builder -- bash -c \
-    'cd "$1" && CARCH=aarch64 makepkg --printsrcinfo' _ "$package_dir"); then
+    'cd "$1" && env CARCH=aarch64 BUILDDIR="$2" PKGDEST="$2" SRCDEST="$2" SRCPKGDEST="$2" LOGDEST="$2" makepkg --printsrcinfo' \
+    _ "$package_dir" "$srcinfo_work"); then
     echo "ERROR: cannot enumerate outputs for scoped package base: $package_base" >&2
     exit 1
   fi
