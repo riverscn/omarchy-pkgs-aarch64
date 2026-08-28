@@ -79,8 +79,8 @@ jq -S -n \
   --slurpfile state "$repo/repository-version-set.json" \
   --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg signing_fingerprint "$signing_fingerprint" \
-  --args "${database_filenames[@]}" \
   '{schema: 2, generated_at: $generated_at, signing_fingerprint: $signing_fingerprint, state: $state[0], packages: $ARGS.positional}' \
+  --args "${database_filenames[@]}" \
   > "$repo/repository-manifest.json"
 
 baseline_sums="$repo/.baseline-SHA256SUMS"

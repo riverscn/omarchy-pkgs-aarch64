@@ -341,6 +341,10 @@ grep -Fq 'gh release delete-asset' "$ROOT/bin/publish-github-release" || fail "p
 grep -Fq 'gh release delete "$old_tag"' "$ROOT/bin/publish-github-release" || fail "publisher does not prune old Releases"
 grep -Fq 'gh api --paginate --slurp' "$ROOT/bin/publish-github-release" || fail "publisher does not paginate Release assets"
 grep -Fq 'schema: 2' "$ROOT/bin/prepare-github-release" || fail "manifest does not list the complete database"
+manifest_filter_line=$(grep -nF "'{schema: 2" "$ROOT/bin/prepare-github-release" | cut -d: -f1)
+manifest_args_line=$(grep -nF -- '--args "${database_filenames[@]}"' "$ROOT/bin/prepare-github-release" | cut -d: -f1)
+[[ -n $manifest_filter_line && -n $manifest_args_line && $manifest_filter_line -lt $manifest_args_line ]] ||
+  fail "manifest filenames are parsed as a jq filter instead of positional arguments"
 grep -Fq 'baseline_line_for' "$ROOT/bin/prepare-github-release" || fail "unchanged remote hashes are not reused"
 grep -Fq 'REMOTE_REPOSITORY_SERVER' "$ROOT/build/validate-repository.sh" || fail "validator cannot resolve remote packages"
 grep -Fq 'reuse_run_id' "$ROOT/.github/workflows/release-aarch64.yml" || fail "workflow cannot recover a valid build artifact without rebuilding"
