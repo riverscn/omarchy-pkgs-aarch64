@@ -59,6 +59,7 @@ docker run --rm "${platform_args[@]}" --user root \
   -e REMOTE_REPOSITORY_SERVER="https://github.com/${GITHUB_REPOSITORY:-riverscn/omarchy-pkgs-aarch64}/releases/latest/download" \
   -v "$repo:/repository:ro" \
   -v "$BUILD_ROOT/config:/config:ro" \
+  -v "$BUILD_ROOT/pkgbuilds:/pkgbuilds:ro" \
   -v "$BUILD_ROOT/pkgbuilds/omarchy-aarch64-keyring:/public:ro" \
   -v "$BUILD_ROOT/build:/build:ro" \
   omarchy-pkg-builder:latest-aarch64-stable /build/validate-repository.sh

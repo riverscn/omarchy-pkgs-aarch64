@@ -60,7 +60,6 @@ conflicts=('t3code')
 options=('!debug' '!strip')
 
 _archive="t3code-${pkgver}.tar.gz"
-_appimage="T3-Code-${pkgver}-arm64.AppImage"
 source=(
   't3code-launcher.sh'
   't3-launcher.sh'
@@ -83,15 +82,22 @@ build() {
   export T3CODE_DESKTOP_OUTPUT_DIR="$srcdir/release"
   pnpm run dist:desktop:artifact \
     --platform linux --target AppImage --arch arm64 --output-dir "$srcdir/release"
-  [[ -f $srcdir/release/$_appimage ]] || {
-    echo "T3 Code did not produce the expected ARM64 AppImage" >&2
+
+  local artifacts=("$srcdir"/release/T3-Code-*-arm64.AppImage)
+  [[ ${#artifacts[@]} -eq 1 && -f ${artifacts[0]} ]] || {
+    echo "T3 Code did not produce exactly one ARM64 AppImage" >&2
     return 1
   }
 }
 
 package() {
-  chmod +x "$srcdir/release/$_appimage"
-  "$srcdir/release/$_appimage" --appimage-extract >/dev/null
+  # Some upstream tags retain the previous desktop version internally (for
+  # example v0.0.35 emits T3-Code-0.0.34-arm64.AppImage). Select the unique
+  # architecture-specific artifact instead of coupling its name to pkgver.
+  local artifacts=("$srcdir"/release/T3-Code-*-arm64.AppImage)
+  [[ ${#artifacts[@]} -eq 1 && -f ${artifacts[0]} ]] || return 1
+  chmod +x "${artifacts[0]}"
+  "${artifacts[0]}" --appimage-extract >/dev/null
   cd "$srcdir/squashfs-root"
 
   # Fail closed if the AppImage begins carrying unexpected compatibility

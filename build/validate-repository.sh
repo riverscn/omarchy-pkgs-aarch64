@@ -4,6 +4,7 @@ set -euo pipefail
 
 repository=${REPOSITORY_DIR:-/repository}
 scope=${PACKAGE_SCOPE:-/config/aarch64-packages}
+pkgbuilds=${PKGBUILDS_DIR:-/pkgbuilds}
 public_key=${PUBLIC_KEY:-/public/omarchy-aarch64.gpg}
 baseline_sums=${BASELINE_SUMS:-/repository/.baseline-SHA256SUMS}
 remote_server=${REMOTE_REPOSITORY_SERVER:-}
@@ -72,15 +73,38 @@ if [[ -f $release_state ]]; then
 fi
 
 available_packages=()
-for package in "${packages[@]}"; do
-  if pacman -Si "$package" >/dev/null; then
-    available_packages+=("$package")
-  elif [[ -n ${failed_packages[$package]:-} ]]; then
-    echo "WARNING: newly pending package is not yet published: $package" >&2
-  else
-    echo "ERROR: pacman cannot resolve scoped package: $package" >&2
+for package_base in "${packages[@]}"; do
+  if [[ -n ${failed_packages[$package_base]:-} ]]; then
+    echo "WARNING: newly pending package base is not yet published: $package_base" >&2
+    continue
+  fi
+
+  package_dir="$pkgbuilds/$package_base"
+  [[ -f $package_dir/PKGBUILD ]] || {
+    echo "ERROR: scoped package base has no PKGBUILD: $package_base" >&2
+    exit 1
+  }
+  if ! srcinfo=$(runuser -u builder -- bash -c \
+    'cd "$1" && CARCH=aarch64 makepkg --printsrcinfo' _ "$package_dir"); then
+    echo "ERROR: cannot enumerate outputs for scoped package base: $package_base" >&2
     exit 1
   fi
+  mapfile -t outputs < <(
+    awk -F' = ' '$1 ~ /^[[:space:]]*pkgname$/ { print $2 }' <<< "$srcinfo"
+  )
+  (( ${#outputs[@]} > 0 )) || {
+    echo "ERROR: scoped package base has no package outputs: $package_base" >&2
+    exit 1
+  }
+
+  for package in "${outputs[@]}"; do
+    if pacman -Si "$package" >/dev/null; then
+      available_packages+=("$package")
+    else
+      echo "ERROR: pacman cannot resolve output $package from scoped package base $package_base" >&2
+      exit 1
+    fi
+  done
 done
 
 # Resolve the complete transaction without installing it. This catches missing

@@ -27,6 +27,10 @@ on:
         description: Rebuild even when the published version set is current
         type: boolean
         default: false
+      reuse_run_id:
+        description: Reuse build artifacts from a completed master run instead of rebuilding
+        type: string
+        default: ''
 
 concurrency:
   group: aarch64-stable-release
@@ -34,6 +38,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   plan:
@@ -44,6 +49,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Validate recipes against official stable
+        if: inputs.reuse_run_id == ''
         run: |
           docker run --rm \
             -e HOST_UID="$(id -u)" \
@@ -62,8 +68,34 @@ jobs:
         id: plan
         env:
           FORCE: ${{ inputs.force || false }}
+          REUSE_RUN_ID: ${{ inputs.reuse_run_id }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          if [[ -n "$REUSE_RUN_ID" ]]; then
+            [[ "$FORCE" != true ]] || {
+              echo "force and reuse_run_id are mutually exclusive" >&2
+              exit 1
+            }
+            [[ $REUSE_RUN_ID =~ ^[1-9][0-9]*$ ]] || {
+              echo "reuse_run_id must be a numeric GitHub Actions run ID" >&2
+              exit 1
+            }
+            source_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$REUSE_RUN_ID")
+            jq -e --arg repository "$GITHUB_REPOSITORY" '
+              .status == "completed" and
+              .head_branch == "master" and
+              .head_repository.full_name == $repository and
+              .path == ".github/workflows/release-aarch64.yml"
+            ' <<< "$source_run" >/dev/null || {
+              echo "reuse_run_id must name a completed master run of this release workflow" >&2
+              exit 1
+            }
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "Reusing signed-release inputs from workflow run $REUSE_RUN_ID; no packages will be rebuilt."
+            exit 0
+          fi
+
           published="$RUNNER_TEMP/published-version-set.json"
           url="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/repository-version-set.json"
           : > aarch64-retry-packages
@@ -91,7 +123,7 @@ jobs:
           fi
 
       - uses: actions/upload-artifact@v7
-        if: steps.plan.outputs.should_build == 'true'
+        if: steps.plan.outputs.should_build == 'true' && inputs.reuse_run_id == ''
         with:
           name: aarch64-version-set
           path: |
@@ -110,15 +142,18 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: actions/download-artifact@v8
+        if: inputs.reuse_run_id == ''
         with:
           name: aarch64-version-set
 
       - name: Seed the latest verified repository database
+        if: inputs.reuse_run_id == ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: ./bin/download-aarch64-baseline --database-only
 
       - name: Build changed stable packages natively
+        if: inputs.reuse_run_id == ''
         env:
           OMARCHY_REPOSITORY_SERVER: https://github.com/${{ github.repository }}/releases/latest/download
         run: |
@@ -132,8 +167,16 @@ jobs:
 
       - name: Summarize the partial build
         id: result
+        env:
+          REUSE_RUN_ID: ${{ inputs.reuse_run_id }}
         run: |
           set -euo pipefail
+          if [[ -n "$REUSE_RUN_ID" ]]; then
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            echo "Reusing package artifacts from workflow run $REUSE_RUN_ID."
+            exit 0
+          fi
+
           output=build-output/stable/aarch64
           shopt -s nullglob
           archives=("$output"/*.pkg.tar.zst)
@@ -163,9 +206,11 @@ jobs:
       # it for package epochs (for example asdcontrol-1:0.6.0-1-...). Wrap the
       # Linux repository payload in an uncompressed tar so names remain exact.
       - name: Pack changed packages for artifact transfer
+        if: inputs.reuse_run_id == ''
         run: tar -cf aarch64-changed-packages.tar -C build-output/stable/aarch64 .
 
       - uses: actions/upload-artifact@v7
+        if: inputs.reuse_run_id == ''
         with:
           name: aarch64-changed-packages
           path: aarch64-changed-packages.tar
@@ -181,17 +226,37 @@ jobs:
     environment: release
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/download-artifact@v8
+        if: inputs.reuse_run_id == ''
         with:
           name: aarch64-version-set
 
       - uses: actions/download-artifact@v8
+        if: inputs.reuse_run_id != ''
+        with:
+          name: aarch64-version-set
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.reuse_run_id }}
+
+      - uses: actions/download-artifact@v8
+        if: inputs.reuse_run_id == ''
         with:
           name: aarch64-changed-packages
           path: ${{ runner.temp }}/aarch64-changed-packages
+
+      - uses: actions/download-artifact@v8
+        if: inputs.reuse_run_id != ''
+        with:
+          name: aarch64-changed-packages
+          path: ${{ runner.temp }}/aarch64-changed-packages
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.reuse_run_id }}
 
       - name: Restore changed package filenames
         run: |

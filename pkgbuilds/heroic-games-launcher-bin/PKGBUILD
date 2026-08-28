@@ -90,7 +90,9 @@ build() {
 }
 
 package() {
-  local archive="HeroicGamesLauncher-$pkgver/dist/Heroic-$pkgver-linux-arm64.pacman"
+  # electron-builder calls the CPU architecture arm64, but its pacman target
+  # follows Arch's architecture spelling in the output filename.
+  local archive="HeroicGamesLauncher-$pkgver/dist/Heroic-$pkgver-linux-aarch64.pacman"
   [[ -f $archive ]] || {
     error "Heroic build did not produce $archive"
     return 1
