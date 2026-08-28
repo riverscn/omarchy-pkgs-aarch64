@@ -4,7 +4,7 @@ This fork publishes the signed rolling package channel used by AArch64 Omarchy
 systems and by images from
 [`riverscn/omarchy-aarch64-image`](https://github.com/riverscn/omarchy-aarch64-image).
 It tracks `omacom-io/omarchy-pkgs` as its upstream build system and maintains
-the 89 package bases in [`config/aarch64-packages`](config/aarch64-packages).
+the 90 package bases in [`config/aarch64-packages`](config/aarch64-packages).
 These cover every ARM-relevant Omarchy package missing from the system
 repositories, including optional applications and ARM hardware integrations;
 x86-only applications and hardware drivers are intentionally excluded.
@@ -14,7 +14,7 @@ excluded lists together to cover every `pkgbuilds/` directory.
 
 The source policy is explicit:
 
-- the 27 entries in `config/aarch64-local-packages` follow an ARM vendor
+- the 28 entries in `config/aarch64-local-packages` follow an ARM vendor
   artifact, AUR source package, Arch packaging source, or downstream source;
 - the 19 entries in `config/aarch64-overlay-packages` follow the official
   Omarchy stable version while applying a reproducible AArch64 adaptation;
@@ -31,10 +31,11 @@ the exact names Omarchy requests but are compiled from source because their
 upstream Linux binary packages are x86-only. Heroic retains the package name
 Omarchy requests but is built from tagged source with the official arm64 game
 service helpers. RustDesk uses its vendor's verified AArch64 Debian artifact.
-The Yaru GTK theme depends on `gtk-engine-murrine`; Arch Linux ARM does not
-currently provide it, so this repository follows the AUR recipe with only the
-verified `aarch64` architecture declaration added and keeps its upstream
-`pkgrel` unchanged.
+The Yaru GTK theme depends on `gtk-engine-murrine`, which in turn depends on
+legacy GTK2. Arch Linux ARM does not currently provide either package, so this
+repository follows their AUR recipes with only the verified `aarch64`
+architecture declarations added and keeps both upstream `pkgrel` values
+unchanged.
 
 A new upstream `pkgver` inherits upstream's complete `pkgrel` unchanged,
 including a dotted value. A same-source downstream rebuild increments only the
