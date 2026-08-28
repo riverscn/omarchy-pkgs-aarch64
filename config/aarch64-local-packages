@@ -21,6 +21,7 @@ omarchy-aarch64-keyring
 omarchy
 omarchy-settings
 omarchy-spice-guest-tools
+pandoc-cli
 retroarch-joypad-autoconfig-git
 rustdesk
 t3code-bin

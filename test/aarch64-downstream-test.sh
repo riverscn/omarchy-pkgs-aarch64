@@ -20,7 +20,7 @@ read_scope() {
 }
 
 mapfile -t packages < <(read_scope "$SCOPE")
-[[ ${#packages[@]} -eq 90 ]] || fail "expected 90 AArch64 package bases, found ${#packages[@]}"
+[[ ${#packages[@]} -eq 91 ]] || fail "expected 91 AArch64 package bases, found ${#packages[@]}"
 duplicates=$(printf '%s\n' "${packages[@]}" | sort | uniq -d)
 [[ -z $duplicates ]] || fail "duplicate packages in scope: $duplicates"
 
@@ -39,6 +39,7 @@ mapfile -t expected_scope <<'EOF'
 bindfs
 dotnet-runtime-bin
 gradle
+pandoc-cli
 gtk2
 gtk-engine-murrine
 omarchy-aarch64-keyring
@@ -130,7 +131,7 @@ EOF
 diff -u <(printf '%s\n' "${expected_scope[@]}") <(printf '%s\n' "${packages[@]}") ||
   fail "AArch64 scope differs from the audited package set"
 
-[[ $(read_scope "$LOCAL_PACKAGES" | wc -l) -eq 28 ]] || fail "unexpected local-policy package count"
+[[ $(read_scope "$LOCAL_PACKAGES" | wc -l) -eq 29 ]] || fail "unexpected local-policy package count"
 [[ $(read_scope "$OVERLAY_PACKAGES" | wc -l) -eq 19 ]] || fail "unexpected overlay package count"
 for policy_file in "$LOCAL_PACKAGES" "$OVERLAY_PACKAGES"; do
   while IFS= read -r package_name; do
@@ -168,7 +169,7 @@ for package_name in "${packages[@]}"; do
     ' <<<"$srcinfo" || fail "$package_name does not emit its requested package name"
   fi
 done
-[[ $output_count -eq 119 ]] || fail "expected 119 AArch64 package outputs, found $output_count"
+[[ $output_count -eq 120 ]] || fail "expected 120 AArch64 package outputs, found $output_count"
 
 vice_srcinfo=$(<"$TEST_TMP/libretro-vice-git.srcinfo")
 for core in x128 x64 x64dtv x64sc xcbm2 xcbm5x0 xpet xplus4 xscpu64 xvic; do
@@ -275,6 +276,14 @@ ghostty_srcinfo=$(<"$TEST_TMP/ghostty.srcinfo")
 for output in ghostty ghostty-shell-integration ghostty-terminfo ghostty-nautilus; do
   grep -Fq "pkgname = $output" <<<"$ghostty_srcinfo" || fail "Ghostty does not emit $output"
 done
+grep -Fq 'makedepends_aarch64 = pandoc-cli' <<<"$ghostty_srcinfo" || fail "Ghostty does not generate documentation on AArch64"
+grep -Fq -- '-Demit-docs' "$ROOT/pkgbuilds/ghostty/PKGBUILD" || fail "Ghostty disables its installed manuals"
+grep -Fq -- '-Demit-docs=false' "$ROOT/pkgbuilds/ghostty/PKGBUILD" && fail "Ghostty explicitly disables its installed manuals"
+
+pandoc_srcinfo=$(<"$TEST_TMP/pandoc-cli.srcinfo")
+grep -Fq 'arch = aarch64' <<<"$pandoc_srcinfo" || fail "Pandoc CLI does not use its official ARM64 artifact"
+grep -Fq 'provides = pandoc' <<<"$pandoc_srcinfo" || fail "Pandoc CLI does not preserve Arch provider compatibility"
+grep -Fq 'pandoc-3.10.2-linux-arm64.tar.gz' <<<"$pandoc_srcinfo" || fail "Pandoc CLI lacks its verified official ARM64 artifact"
 
 grep -Fq "arch=('any')" "$ROOT/pkgbuilds/yt6801-dkms/PKGBUILD" || fail "yt6801 DKMS sources are not architecture-independent"
 grep -Fq 'pkgver=1.0.34' "$ROOT/pkgbuilds/yt6801-dkms/PKGBUILD" || fail "yt6801 does not match Motorcomm download id 1817"
@@ -327,6 +336,22 @@ grep -Fq 'isSystemEfiArchitecture()' "$limine_patch" || fail "Limine rejects AAr
 grep -Fq 'OMARCHY_REPOSITORY_SERVER' "$ROOT/build/build.sh" || fail "builder cannot use the rolling Release"
 grep -Fq -- '--force-explicit' "$ROOT/bin/release-aarch64" || fail "local AArch64 release helper still filters non-fast packages"
 grep -Fq 'repo-add omarchy-build.db.tar.zst "${built_filenames[@]}"' "$ROOT/build/build.sh" || fail "split outputs are not indexed"
+mkdir -p "$TEST_TMP/dependency-build" "$TEST_TMP/dependency-repo" "$TEST_TMP/dependency-src"
+dependency_plan=$(
+  ARCH=aarch64 \
+  MIRROR=stable \
+  DRY_RUN=true \
+  FORCE_EXPLICIT=true \
+  PACKAGES='ghostty pandoc-cli' \
+  PKGBUILDS_DIR="$ROOT/pkgbuilds" \
+  BUILD_OUTPUT_DIR="$TEST_TMP/dependency-build" \
+  FINAL_OUTPUT_DIR="$TEST_TMP/dependency-repo" \
+  HELPERS_DIR="$ROOT/helpers" \
+  SRC_DIR="$TEST_TMP/dependency-src" \
+  bash "$ROOT/build/build.sh"
+)
+grep -Fq 'Build order: pandoc-cli ghostty' <<<"$dependency_plan" ||
+  fail "builder ignores architecture-specific package dependencies"
 grep -Fq -- '--database-only' "$ROOT/bin/download-aarch64-baseline" || fail "baseline downloader lacks database-only mode"
 [[ $(grep -Fc './bin/download-aarch64-baseline --database-only' "$ROOT/.github/workflows/release-aarch64.yml") -eq 2 ]] ||
   fail "build and publish jobs do not seed only the database"
@@ -383,4 +408,4 @@ done < <(
   done < <(read_scope "$SCOPE")
 )
 
-echo "PASS: 90-package-base/119-output AArch64 scope, 47 explicit exclusions, upstream pkgrel policy, ARM recipes, and rolling Release are internally consistent"
+echo "PASS: 91-package-base/120-output AArch64 scope, 47 explicit exclusions, upstream pkgrel policy, ARM recipes, and rolling Release are internally consistent"

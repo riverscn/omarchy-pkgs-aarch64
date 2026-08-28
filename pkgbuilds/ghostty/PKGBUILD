@@ -4,7 +4,7 @@
 pkgbase=ghostty
 pkgname=(ghostty ghostty-shell-integration ghostty-terminfo ghostty-nautilus)
 pkgver=1.3.1
-pkgrel=2
+pkgrel=3
 pkgdesc='Fast, native, feature-rich terminal emulator pushing modern features'
 arch=(x86_64 aarch64 i686)
 url="https://github.com/ghostty-org/$pkgbase"
@@ -27,6 +27,7 @@ depends=(bzip2
 makedepends=(blueprint-compiler)
 makedepends_x86_64=(pandoc-cli zig)
 makedepends_i686=(pandoc-cli zig)
+makedepends_aarch64=(pandoc-cli)
 optdepends=()
 _zig_version=0.15.2
 _archive="$pkgname-$pkgver"
@@ -47,8 +48,6 @@ build() {
 	cd "$_archive"
 	local zig_cmd=zig
 	[[ $CARCH != aarch64 ]] || zig_cmd="$srcdir/zig-aarch64-linux-$_zig_version/zig"
-	local docs_option=-Demit-docs
-	[[ $CARCH != aarch64 ]] || docs_option=-Demit-docs=false
 	DESTDIR=build "$zig_cmd" build \
 		--summary all \
 		--prefix "/usr" \
@@ -57,7 +56,7 @@ build() {
 		-Dgtk-x11=true \
 		-Dcpu=baseline \
 		-Dpie=true \
-		"$docs_option" \
+		-Demit-docs \
 		-Dversion-string="$pkgver-arch$pkgrel" \
 		--build-id=sha1
 }

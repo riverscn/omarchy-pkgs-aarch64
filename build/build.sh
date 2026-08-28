@@ -368,10 +368,15 @@ get_package_deps() {
     return
   fi
 
-  # Extract depends and makedepends, filter for packages in our pkgbuilds/
+  # Extract runtime, build, and check dependencies, including the target
+  # architecture's arrays. A new AArch64-only dependency may be part of this
+  # same build plan and must be built and indexed before its consumer.
   (
     source "$pkgbuild" 2>/dev/null
-    echo "${depends[*]} ${makedepends[*]}"
+    declare -n arch_depends="depends_$ARCH"
+    declare -n arch_makedepends="makedepends_$ARCH"
+    declare -n arch_checkdepends="checkdepends_$ARCH"
+    echo "${depends[*]} ${makedepends[*]} ${checkdepends[*]} ${arch_depends[*]} ${arch_makedepends[*]} ${arch_checkdepends[*]}"
   ) | tr ' ' '\n' | while read -r dep; do
     # Strip version constraints (e.g., 'hyprshade>=1.0' -> 'hyprshade')
     dep=$(echo "$dep" | sed 's/[<>=].*$//')
