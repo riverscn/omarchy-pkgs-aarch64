@@ -55,8 +55,9 @@ Successful archives are still published when another package fails. Existing
 failed packages remain at their last published version, new failed packages are
 marked pending, and the recorded failure set is forcibly retried by the next
 workflow run. A failed publication can reuse a completed run's package artifact
-and optionally supplement only newly discovered missing packages, avoiding a
-repeat build and transfer of the complete changed-package set.
+and optionally supplement only newly discovered missing packages. A subsequent
+recovery can also reuse that supplemental artifact, avoiding both a repeat build
+and a repeat transfer of the complete changed-package set.
 
 The latest Release is directly consumable as a pacman repository. Bootstrap
 its public key once, then install the keyring package so future key updates are

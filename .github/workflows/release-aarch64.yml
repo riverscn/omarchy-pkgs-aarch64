@@ -35,6 +35,10 @@ on:
         description: Package bases to build alongside reused artifacts (comma or whitespace separated)
         type: string
         default: ''
+      supplement_run_id:
+        description: Reuse supplemental recovery packages from another completed master run
+        type: string
+        default: ''
 
 concurrency:
   group: aarch64-stable-release
@@ -74,6 +78,7 @@ jobs:
           FORCE: ${{ inputs.force || false }}
           REUSE_RUN_ID: ${{ inputs.reuse_run_id }}
           RECOVERY_PACKAGES: ${{ inputs.recovery_packages }}
+          SUPPLEMENT_RUN_ID: ${{ inputs.supplement_run_id }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -82,6 +87,14 @@ jobs:
           )
           if (( ${#recovery_packages[@]} > 0 )) && [[ -z "$REUSE_RUN_ID" ]]; then
             echo "recovery_packages requires reuse_run_id" >&2
+            exit 1
+          fi
+          if [[ -n "$SUPPLEMENT_RUN_ID" && -z "$REUSE_RUN_ID" ]]; then
+            echo "supplement_run_id requires reuse_run_id" >&2
+            exit 1
+          fi
+          if [[ -n "$SUPPLEMENT_RUN_ID" ]] && (( ${#recovery_packages[@]} > 0 )); then
+            echo "supplement_run_id and recovery_packages are mutually exclusive" >&2
             exit 1
           fi
           for package in "${recovery_packages[@]}"; do
@@ -110,9 +123,32 @@ jobs:
               echo "reuse_run_id must name a completed master run of this release workflow" >&2
               exit 1
             }
+            if [[ -n "$SUPPLEMENT_RUN_ID" ]]; then
+              [[ $SUPPLEMENT_RUN_ID =~ ^[1-9][0-9]*$ ]] || {
+                echo "supplement_run_id must be a numeric GitHub Actions run ID" >&2
+                exit 1
+              }
+              supplement_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SUPPLEMENT_RUN_ID")
+              jq -e --arg repository "$GITHUB_REPOSITORY" '
+                .status == "completed" and
+                .head_branch == "master" and
+                .head_repository.full_name == $repository and
+                .path == ".github/workflows/release-aarch64.yml"
+              ' <<< "$supplement_run" >/dev/null || {
+                echo "supplement_run_id must name a completed master run of this release workflow" >&2
+                exit 1
+              }
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SUPPLEMENT_RUN_ID/artifacts" |
+                jq -e 'any(.artifacts[]; .name == "aarch64-recovery-packages" and (.expired | not))' >/dev/null || {
+                  echo "supplement_run_id has no live aarch64-recovery-packages artifact" >&2
+                  exit 1
+                }
+            fi
             echo "should_build=true" >> "$GITHUB_OUTPUT"
             if (( ${#recovery_packages[@]} > 0 )); then
               echo "Reusing signed-release inputs from workflow run $REUSE_RUN_ID and supplementing: ${recovery_packages[*]}"
+            elif [[ -n "$SUPPLEMENT_RUN_ID" ]]; then
+              echo "Reusing signed-release inputs from run $REUSE_RUN_ID and supplemental packages from run $SUPPLEMENT_RUN_ID."
             else
               echo "Reusing signed-release inputs from workflow run $REUSE_RUN_ID; no packages will be rebuilt."
             fi
@@ -208,6 +244,7 @@ jobs:
             --force-explicit \
             --allow-partial \
             --package "${packages[@]}"
+          printf '%s\n' "${packages[@]}" > build-output/stable/aarch64/.recovery-packages
           touch build-output/stable/aarch64/.complete
 
       - name: Summarize the partial build
@@ -323,6 +360,15 @@ jobs:
           name: aarch64-recovery-packages
           path: ${{ runner.temp }}/aarch64-recovery-packages
 
+      - uses: actions/download-artifact@v8
+        if: inputs.supplement_run_id != ''
+        with:
+          name: aarch64-recovery-packages
+          path: ${{ runner.temp }}/aarch64-recovery-packages
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.supplement_run_id }}
+
       - name: Restore changed package filenames
         run: |
           set -euo pipefail
@@ -332,6 +378,7 @@ jobs:
           cp build-output/stable/aarch64/.failed-packages "$RUNNER_TEMP/reused-failed-packages" 2>/dev/null || true
 
           if [[ -f "$RUNNER_TEMP/aarch64-recovery-packages/aarch64-recovery-packages.tar" ]]; then
+            rm -f build-output/stable/aarch64/.failed-packages
             tar -xf "$RUNNER_TEMP/aarch64-recovery-packages/aarch64-recovery-packages.tar" \
               -C build-output/stable/aarch64
             cp build-output/stable/aarch64/.failed-packages "$RUNNER_TEMP/recovery-failed-packages" 2>/dev/null || true
@@ -339,6 +386,16 @@ jobs:
               [[ ! -f "$RUNNER_TEMP/reused-failed-packages" ]] || cat "$RUNNER_TEMP/reused-failed-packages"
               [[ ! -f "$RUNNER_TEMP/recovery-failed-packages" ]] || cat "$RUNNER_TEMP/recovery-failed-packages"
             } | sed -E '/^[[:space:]]*$/d' | sort -u > "$RUNNER_TEMP/combined-failed-packages"
+            if [[ -f build-output/stable/aarch64/.recovery-packages ]]; then
+              comm -23 \
+                <(sort -u build-output/stable/aarch64/.recovery-packages) \
+                <(sort -u "$RUNNER_TEMP/recovery-failed-packages" 2>/dev/null || true) \
+                > "$RUNNER_TEMP/recovered-package-bases"
+              grep -vxFf "$RUNNER_TEMP/recovered-package-bases" \
+                "$RUNNER_TEMP/combined-failed-packages" \
+                > "$RUNNER_TEMP/remaining-failed-packages" || true
+              mv "$RUNNER_TEMP/remaining-failed-packages" "$RUNNER_TEMP/combined-failed-packages"
+            fi
             if [[ -s "$RUNNER_TEMP/combined-failed-packages" ]]; then
               cp "$RUNNER_TEMP/combined-failed-packages" build-output/stable/aarch64/.failed-packages
             else
