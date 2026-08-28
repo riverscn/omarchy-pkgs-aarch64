@@ -115,4 +115,16 @@ grep -Fxq "delete-asset $stale_package" "$GH_STUB_LOG" || { echo "stale package 
 grep -Fxq "delete-asset $stale_package.sig" "$GH_STUB_LOG" || { echo "stale signature was not pruned" >&2; exit 1; }
 grep -Fxq 'delete-release old-snapshot' "$GH_STUB_LOG" || { echo "old Release was not pruned" >&2; exit 1; }
 
+# An interrupted publication can leave all immutable package assets uploaded
+# before the database switch. Their live GitHub digests must make the next run
+# resume without transferring those packages again, even when the old signed
+# SHA256SUMS still describes the previous repository state.
+: > "$GH_STUB_LOG"
+PATH="$stub_bin:$PATH" GH_TOKEN=test \
+  "$ROOT/bin/publish-github-release" --repository example/repo --repo-dir "$repo" --tag aarch64-stable >/dev/null
+grep -Eq '^upload .+\.pkg\.tar\.zst(\.sig)?$' "$GH_STUB_LOG" && {
+  echo "an already uploaded package was transferred again during resume" >&2
+  exit 1
+}
+
 echo "PASS: rolling publisher retains unchanged packages and atomically switches the signed database"

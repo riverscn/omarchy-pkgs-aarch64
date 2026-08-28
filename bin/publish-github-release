@@ -82,9 +82,16 @@ old_hash_for() {
 upload_if_needed() {
   local asset="$1"
   local path="$repo_dir/$asset"
-  local previous_hash
+  local previous_hash live_digest
 
   if [[ -n ${existing_asset[$asset]:-} ]]; then
+    live_digest=$(jq -r --arg name "$asset" \
+      '.[][] | select(.name == $name) | .digest // ""' "$release_assets_json")
+    if [[ $live_digest == "sha256:${desired_hash[$asset]}" ]]; then
+      echo "Keeping already uploaded Release asset: $asset"
+      return 0
+    fi
+
     previous_hash=$(old_hash_for "$asset")
     if [[ -n $previous_hash && $previous_hash == "${desired_hash[$asset]}" ]]; then
       echo "Keeping unchanged Release asset: $asset"
@@ -105,22 +112,43 @@ upload_if_needed() {
 verify_uploaded_assets() {
   (( ${#uploaded_assets[@]} > 0 )) || return 0
 
-  refresh_release_assets
-
-  local asset expected digest download_dir
+  local asset expected digest asset_id download_dir attempt
+  local -a pending=("${uploaded_assets[@]}")
+  local -a still_pending=()
   download_dir=$(mktemp -d)
-  for asset in "${uploaded_assets[@]}"; do
-    expected=${desired_hash[$asset]}
-    digest=$(jq -r --arg name "$asset" '.[][] | select(.name == $name) | .digest // ""' "$release_assets_json")
-    if [[ $digest == "sha256:$expected" ]]; then
-      continue
-    fi
 
+  # A newly uploaded asset can take a few seconds to appear consistently in
+  # all Release API views. Prefer GitHub's own digest and allow the complete
+  # batch to converge with one API request per retry, not per asset.
+  for attempt in 1 2 3 4 5; do
+    refresh_release_assets
+    still_pending=()
+    for asset in "${pending[@]}"; do
+      expected=${desired_hash[$asset]}
+      digest=$(jq -r --arg name "$asset" \
+        '.[][] | select(.name == $name) | .digest // ""' "$release_assets_json")
+      [[ $digest == "sha256:$expected" ]] || still_pending+=("$asset")
+    done
+    pending=("${still_pending[@]}")
+    (( ${#pending[@]} == 0 )) && break
+    (( attempt < 5 )) && sleep 2
+  done
+
+  for asset in "${pending[@]}"; do
+    expected=${desired_hash[$asset]}
     # Older GitHub assets may not expose a digest. Download only the assets
     # changed in this run; unchanged packages are trusted through the previous
-    # signed manifest and are never transferred again.
-    gh release download "$release_tag" --repo "$repository" \
-      --dir "$download_dir" --clobber --pattern "$asset"
+    # signed manifest and are never transferred again. Use the immutable asset
+    # ID instead of a name pattern so API-listing convergence cannot make an
+    # otherwise successful upload look absent.
+    asset_id=$(jq -r --arg name "$asset" \
+      '.[][] | select(.name == $name) | .id // ""' "$release_assets_json")
+    [[ $asset_id =~ ^[0-9]+$ ]] || {
+      echo "ERROR: uploaded Release asset is not visible after retries: $asset" >&2
+      exit 1
+    }
+    gh api -H 'Accept: application/octet-stream' \
+      "repos/$repository/releases/assets/$asset_id" > "$download_dir/$asset"
     [[ $(sha256sum "$download_dir/$asset" | awk '{ print $1 }') == "$expected" ]] || {
       echo "ERROR: uploaded asset checksum mismatch: $asset" >&2
       exit 1
