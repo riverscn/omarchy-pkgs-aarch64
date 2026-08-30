@@ -161,6 +161,13 @@ if [[ -n "${OMARCHY_REPOSITORY_KEY_FINGERPRINT:-}" ]]; then
   DOCKER_ARGS+=( -e "OMARCHY_REPOSITORY_KEY_FINGERPRINT=$OMARCHY_REPOSITORY_KEY_FINGERPRINT" )
 fi
 
+# A publication backend may seed only the repository database locally and
+# keep unchanged package archives on a remote server. The default remains the
+# complete local repository used by the upstream release host.
+if [[ -n "${OMARCHY_REPOSITORY_SERVER:-}" ]]; then
+  DOCKER_ARGS+=( -e "OMARCHY_REPOSITORY_SERVER=$OMARCHY_REPOSITORY_SERVER" )
+fi
+
 # Run the builder with assembled args
 IMAGE_TAG="omarchy-pkg-builder:latest-$ARCH-$MIRROR"
 PLATFORM_ARG=$(get_platform_arg "$ARCH")
