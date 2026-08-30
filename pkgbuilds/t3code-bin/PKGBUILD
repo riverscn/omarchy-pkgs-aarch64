@@ -6,7 +6,7 @@
 
 pkgname=t3code-bin
 pkgver=0.0.36
-pkgrel=1
+pkgrel=2
 pkgdesc="Open-source control plane for coding agents"
 arch=('x86_64' 'aarch64')
 url="https://t3.codes"
@@ -116,6 +116,18 @@ package() {
   fi
 
   cd "${srcdir}/squashfs-root"
+
+  if [[ $CARCH == aarch64 ]]; then
+    local node_pty="resources/app.asar.unpacked/node_modules/node-pty"
+    [[ -f "${node_pty}/build/Release/pty.node" ]] || {
+      echo "T3 Code's ARM64 build lacks its native node-pty binding" >&2
+      return 1
+    }
+    # node-gyp produced the Linux AArch64 binding above. The packaged Darwin
+    # and Windows prebuild matrix is unreachable on Linux and only carries
+    # foreign native binaries, so do not publish it.
+    rm -rf "${node_pty}/prebuilds"
+  fi
 
   # The AppImage's usr/ tree is compatibility libraries for distributions that
   # lack them, and Arch is not one; its icons are the only part worth keeping.
