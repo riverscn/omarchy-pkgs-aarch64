@@ -1,0 +1,7 @@
+# Package bases added only by the AArch64 fork.
+#
+# The integration test subtracts this explicit overlay from the complete scope
+# and requires the remainder to match the upstream edge AArch64 range.
+
+omarchy-aarch64-keyring
+omarchy-spice-guest-tools

@@ -10,13 +10,13 @@
 #    provenance only (empty when cut from a bare commit). omarchy and
 #    omarchy-settings must always carry identical _tag/_commit/pkgver/sha256sums.
 pkgname='omarchy-settings'
-_tag='v4.0.1'
-_commit='13f18b2cb7286fb54f87daf571a031aa6af3d8f0'
-pkgver=4.0.1
+_tag='v4.0.1-aarch64.2'
+_commit='1e06f6fa6bec1e2d7a7eb2611e7208aafb758d76'
+pkgver=4.0.1.r6114.g1e06f6fa6bec
 pkgrel=1
 pkgdesc='Omarchy user defaults, /etc/skel content, fonts, plymouth theme, and support helpers'
 arch=('any')
-url='https://github.com/basecamp/omarchy'
+url='https://github.com/riverscn/omarchy-aarch64'
 license=('MIT')
 conflicts=('omarchy-settings-dev')
 
@@ -47,8 +47,7 @@ makedepends=(
 # backup=() is pacman's hook for protecting user edits to package-owned files
 # on upgrade. Only the paths the package actually installs into /etc qualify.
 # The etc-overrides set (faillock.conf, nsswitch.conf, cups-browsed.conf,
-# cups-files.conf, plymouthd.conf, /etc/skel/.bashrc) ships at
-# /usr/share/omarchy/etc-overrides/
+# plymouthd.conf, /etc/skel/.bashrc) ships at /usr/share/omarchy/etc-overrides/
 # and is cp -f'd by post_install — those paths are unowned by pacman and the
 # scriptlet WILL clobber user edits on each upgrade (documented limitation).
 backup=(
@@ -100,7 +99,6 @@ _etc_override_paths=(
   'etc/security/faillock.conf'
   'etc/nsswitch.conf'
   'etc/cups/cups-browsed.conf'
-  'etc/cups/cups-files.conf'
   'etc/plymouth/plymouthd.conf'
 )
 
@@ -110,8 +108,8 @@ if [[ -n "${OMARCHY_SRC:-}" ]]; then
   source=()
   sha256sums=()
 else
-  source=("omarchy::git+https://github.com/basecamp/omarchy.git#commit=${_commit}")
-  sha256sums=('817e611fec23c8768825843aece12b2b8f4c3a3a2f71953dcb0129f54f44b1af')
+  source=("omarchy::git+https://github.com/riverscn/omarchy-aarch64.git#commit=${_commit}")
+  sha256sums=('97b69e37311f87d434c01741cdfdc357fe7617cf79a8455dbaea56d4866ce675')
 fi
 
 prepare() {
@@ -221,8 +219,6 @@ EOF
         mv "$pkgdir/$path" "$pkgdir/usr/share/omarchy/etc-overrides/nsswitch.conf" ;;
       'etc/cups/cups-browsed.conf')
         mv "$pkgdir/$path" "$pkgdir/usr/share/omarchy/etc-overrides/cups-cups-browsed.conf" ;;
-      'etc/cups/cups-files.conf')
-        [[ ! -f $pkgdir/$path ]] || mv "$pkgdir/$path" "$pkgdir/usr/share/omarchy/etc-overrides/cups-cups-files.conf" ;;
       'etc/plymouth/plymouthd.conf')
         mv "$pkgdir/$path" "$pkgdir/usr/share/omarchy/etc-overrides/plymouth-plymouthd.conf" ;;
     esac
