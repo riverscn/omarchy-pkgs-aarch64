@@ -1,0 +1,117 @@
+name: Publish AArch64 rolling repository
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/release-aarch64.yml
+      - bin/**
+      - build/**
+      - config/aarch64-*
+      - helpers/**
+      - pkgbuilds/**
+  workflow_dispatch:
+    inputs:
+      full_rebuild:
+        description: Ignore the current Release and rebuild the complete scope
+        required: true
+        type: boolean
+        default: true
+      publish:
+        description: Publish after build and validation
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aarch64-rolling-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # Native execution is an explicit invariant. The adapter refuses to run on
+    # x86 hosts and never installs binfmt or QEMU.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 360
+    environment: release
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate release adapter
+        run: |
+          set -euo pipefail
+          bash -n \
+            bin/github-release-aarch64 \
+            bin/normalize-github-release-packages \
+            bin/publish-github-release \
+            build/github-release-prepare.sh
+          bin/github-release-aarch64 scope >/dev/null
+
+      - name: Reject publishing a validation rebuild
+        if: github.event_name == 'workflow_dispatch' && inputs.full_rebuild && inputs.publish
+        run: |
+          echo "A zero-baseline full rebuild is validation-only and cannot be published." >&2
+          exit 1
+
+      - name: Seed current repository metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.full_rebuild }}" == "true" ]]; then
+            bin/github-release-aarch64 seed --no-baseline
+          else
+            bin/github-release-aarch64 seed
+          fi
+
+      - name: Build changed packages
+        run: bin/github-release-aarch64 build
+
+      - name: Prepare and validate signed repository
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.AARCH64_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.AARCH64_GPG_PASSPHRASE }}
+        run: bin/github-release-aarch64 prepare
+
+      - name: Upload repository validation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: aarch64-repository-evidence-${{ github.run_id }}
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            pkgs.omarchy.org/edge/aarch64/omarchy.db
+            pkgs.omarchy.org/edge/aarch64/omarchy.db.sig
+            pkgs.omarchy.org/edge/aarch64/omarchy.db.tar.zst
+            pkgs.omarchy.org/edge/aarch64/omarchy.db.tar.zst.sig
+            pkgs.omarchy.org/edge/aarch64/omarchy.files
+            pkgs.omarchy.org/edge/aarch64/omarchy.files.sig
+            pkgs.omarchy.org/edge/aarch64/omarchy.files.tar.zst
+            pkgs.omarchy.org/edge/aarch64/omarchy.files.tar.zst.sig
+            pkgs.omarchy.org/edge/aarch64/omarchy-aarch64.gpg
+            pkgs.omarchy.org/edge/aarch64/repository-build-audit.json
+            pkgs.omarchy.org/edge/aarch64/repository-manifest.json
+            pkgs.omarchy.org/edge/aarch64/SHA256SUMS
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aarch64-build-logs-${{ github.run_id }}
+          retention-days: 14
+          if-no-files-found: warn
+          path: logs/*.log
+
+      - name: Publish rolling repository
+        if: github.event_name == 'push' || (inputs.publish && inputs.full_rebuild == false)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bin/github-release-aarch64 publish

@@ -68,7 +68,9 @@ EOF
     fi
   fi
 
-  # Add omarchy repo if it has a database (stable packages)
+  # Add omarchy repo if it has a database (published packages). A storage
+  # adapter may provide a remote fallback for archives that are represented by
+  # the local database but intentionally not downloaded into this workspace.
   if [[ -f "$FINAL_OUTPUT_DIR/omarchy.db.tar.zst" ]] || [[ -f "$FINAL_OUTPUT_DIR/omarchy.db" ]]; then
     sudo tee -a /etc/pacman.conf > /dev/null <<EOF
 
@@ -76,6 +78,13 @@ EOF
 SigLevel = Optional TrustAll
 Server = file://$FINAL_OUTPUT_DIR
 EOF
+    if [[ -n "${OMARCHY_REPOSITORY_SERVER:-}" ]]; then
+      [[ "$OMARCHY_REPOSITORY_SERVER" != *$'\n'* ]] || {
+        echo "==> ERROR: OMARCHY_REPOSITORY_SERVER must be a single line"
+        exit 1
+      }
+      echo "Server = $OMARCHY_REPOSITORY_SERVER" | sudo tee -a /etc/pacman.conf >/dev/null
+    fi
     echo "  -> omarchy (priority 2): $FINAL_OUTPUT_DIR"
   fi
 

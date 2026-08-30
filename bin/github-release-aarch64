@@ -1,0 +1,288 @@
+#!/bin/bash
+
+# Thin GitHub Release backend for the fork's native AArch64 repository.
+# Package discovery, version comparison, building, and package signing remain
+# delegated to the regular bin/repo commands.
+
+set -euo pipefail
+
+BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
+source "$BUILD_ROOT/helpers/message-helpers.sh"
+source "$BUILD_ROOT/helpers/docker-helpers.sh"
+
+ARCH=aarch64
+MIRROR=edge
+SCOPE="$BUILD_ROOT/config/aarch64-packages"
+FORK_SCOPE="$BUILD_ROOT/config/aarch64-fork-packages"
+REPO_DIR="$BUILD_ROOT/pkgs.omarchy.org/$MIRROR/$ARCH"
+BUILD_OUTPUT_DIR="$BUILD_ROOT/build-output/$MIRROR/$ARCH"
+REPOSITORY=${GITHUB_REPOSITORY:-riverscn/omarchy-pkgs-aarch64}
+RELEASE_TAG=${AARCH64_RELEASE_TAG:-aarch64-stable}
+FULL_REBUILD_MARKER="$REPO_DIR/.full-rebuild-validation"
+NO_BASELINE=false
+
+usage() {
+  cat <<EOF
+Usage: $0 <command> [OPTIONS]
+
+Commands:
+  seed       Download and verify the current rolling repository metadata
+  build      Build changed packages with the regular Omarchy builder
+  prepare    Sign, assemble, and validate the next repository snapshot
+  publish    Atomically update the managed GitHub Release
+  run        Run seed, build, prepare, and publish
+  full-rebuild
+             Build and validate the complete scope from an empty repository
+  scope      Validate and print the configured package-base scope
+
+Options:
+  --repository <owner/repo>  GitHub repository (default: GITHUB_REPOSITORY)
+  --tag <tag>                Managed rolling Release tag (default: aarch64-stable)
+  --no-baseline             Do not read the existing Release (seed/run only)
+EOF
+}
+
+COMMAND=${1:-}
+[[ -n $COMMAND ]] || { usage; exit 1; }
+shift
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repository) [[ $# -ge 2 ]] || { echo "ERROR: --repository needs a value" >&2; exit 1; }; REPOSITORY=$2; shift 2 ;;
+    --tag) [[ $# -ge 2 ]] || { echo "ERROR: --tag needs a value" >&2; exit 1; }; RELEASE_TAG=$2; shift 2 ;;
+    --no-baseline) NO_BASELINE=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [[ $NO_BASELINE == true && $COMMAND != seed && $COMMAND != run && $COMMAND != full-rebuild ]]; then
+  echo "ERROR: --no-baseline is valid only with seed, run, or full-rebuild" >&2
+  exit 1
+fi
+
+scope_packages() {
+  sed -E '/^[[:space:]]*(#|$)/d' "$SCOPE" "$FORK_SCOPE"
+}
+
+validate_scope() {
+  [[ -f $SCOPE ]] || { echo "ERROR: missing package scope: $SCOPE" >&2; return 1; }
+  [[ -f $FORK_SCOPE ]] || { echo "ERROR: missing fork package scope: $FORK_SCOPE" >&2; return 1; }
+
+  local package count=0
+  declare -A seen=()
+  while IFS= read -r package; do
+    [[ $package =~ ^[a-zA-Z0-9@._+-]+$ ]] || {
+      echo "ERROR: invalid package base in scope: $package" >&2
+      return 1
+    }
+    [[ -z ${seen[$package]:-} ]] || {
+      echo "ERROR: duplicate package base in scope: $package" >&2
+      return 1
+    }
+    seen[$package]=1
+    [[ -f $BUILD_ROOT/pkgbuilds/$package/PKGBUILD ]] || {
+      echo "ERROR: scoped package base has no PKGBUILD: $package" >&2
+      return 1
+    }
+    ((count += 1))
+  done < <(scope_packages)
+  (( count > 0 )) || { echo "ERROR: package scope is empty" >&2; return 1; }
+  echo "Validated $count AArch64 package bases."
+}
+
+require_native_arm() {
+  case "$(uname -m)" in
+    aarch64|arm64) ;;
+    *)
+      echo "ERROR: AArch64 releases require a native ARM runner; emulation is intentionally unsupported." >&2
+      return 1
+      ;;
+  esac
+}
+
+checked_in_public_key() {
+  echo "$BUILD_ROOT/pkgbuilds/omarchy-aarch64-keyring/omarchy-aarch64.gpg"
+}
+
+expected_fingerprint() {
+  tr -d '[:space:]' < "$BUILD_ROOT/config/aarch64-signing-fingerprint"
+}
+
+verify_public_key() {
+  local key=$1 expected actual key_home
+  expected=$(expected_fingerprint)
+  [[ $expected =~ ^[0-9A-F]{40}$ ]] || {
+    echo "ERROR: invalid configured signing fingerprint" >&2
+    return 1
+  }
+  key_home=$(mktemp -d)
+  chmod 700 "$key_home"
+  actual=$(GNUPGHOME=$key_home gpg --batch --show-keys --with-colons "$key" 2>/dev/null |
+    awk -F: '$1 == "fpr" { print $10; exit }')
+  rm -rf "$key_home"
+  [[ $actual == "$expected" ]] || {
+    echo "ERROR: public key fingerprint mismatch: ${actual:-missing}" >&2
+    return 1
+  }
+}
+
+seed_repository() (
+  command -v gpg >/dev/null || { echo "ERROR: gpg is required" >&2; return 1; }
+  validate_scope >/dev/null
+  verify_public_key "$(checked_in_public_key)"
+
+  rm -rf "$REPO_DIR"
+  mkdir -p "$REPO_DIR"
+
+  if [[ $NO_BASELINE == true ]]; then
+    touch "$FULL_REBUILD_MARKER"
+    echo "Initialized an empty, non-publishable full-rebuild repository."
+    return 0
+  fi
+
+  command -v gh >/dev/null || { echo "ERROR: gh is required" >&2; return 1; }
+
+  if ! gh release view "$RELEASE_TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
+    echo "No $RELEASE_TAG Release found; a complete repository will be built."
+    return 0
+  fi
+
+  local staging verify_home
+  staging=$(mktemp -d)
+  verify_home=$(mktemp -d)
+  trap 'rm -rf "$staging" "$verify_home"' EXIT
+  chmod 700 "$verify_home"
+
+  gh release download "$RELEASE_TAG" --repo "$REPOSITORY" --dir "$staging" \
+    --pattern 'omarchy.db' \
+    --pattern 'omarchy.db.sig' \
+    --pattern 'omarchy.db.tar.zst' \
+    --pattern 'omarchy.db.tar.zst.sig' \
+    --pattern 'omarchy.files' \
+    --pattern 'omarchy.files.sig' \
+    --pattern 'omarchy.files.tar.zst' \
+    --pattern 'omarchy.files.tar.zst.sig' \
+    --pattern 'repository-build-audit.json' \
+    --pattern 'repository-manifest.json' \
+    --pattern 'omarchy-aarch64.gpg' \
+    --pattern 'SHA256SUMS'
+
+  for required in SHA256SUMS omarchy.db.tar.zst omarchy.db.tar.zst.sig; do
+    [[ -f $staging/$required ]] || {
+      echo "ERROR: rolling Release lacks $required" >&2
+      return 1
+    }
+  done
+
+  (cd "$staging" && sha256sum --check --ignore-missing SHA256SUMS)
+  GNUPGHOME=$verify_home gpg --batch --import "$(checked_in_public_key)" >/dev/null 2>&1
+  GNUPGHOME=$verify_home gpg --batch --verify \
+    "$staging/omarchy.db.tar.zst.sig" "$staging/omarchy.db.tar.zst" >/dev/null
+
+  cp -- "$staging"/* "$REPO_DIR/"
+  cp "$staging/SHA256SUMS" "$REPO_DIR/.baseline-SHA256SUMS"
+  printf '%s\n' "$RELEASE_TAG" > "$REPO_DIR/.baseline-release-tag"
+  echo "Seeded and verified the signed database from $RELEASE_TAG."
+)
+
+build_packages() {
+  require_native_arm
+  validate_scope >/dev/null
+  mapfile -t packages < <(scope_packages)
+
+  if [[ -f $FULL_REBUILD_MARKER ]]; then
+    # A retry must not treat a database produced by an earlier validation
+    # attempt as its baseline. Keep only the mode marker and rebuild all
+    # package bases from an empty final repository.
+    find "$REPO_DIR" -mindepth 1 -maxdepth 1 \
+      ! -name "${FULL_REBUILD_MARKER##*/}" -exec rm -rf -- {} +
+    "$BUILD_ROOT/bin/repo" build --local --arch "$ARCH" --mirror "$MIRROR" \
+      --package "${packages[@]}"
+  else
+    OMARCHY_REPOSITORY_SERVER="https://github.com/$REPOSITORY/releases/download/$RELEASE_TAG" \
+      "$BUILD_ROOT/bin/repo" build --local --arch "$ARCH" --mirror "$MIRROR" \
+        --package "${packages[@]}"
+  fi
+}
+
+prepare_repository() {
+  require_native_arm
+  validate_scope >/dev/null
+  : "${GPG_PRIVATE_KEY:?GPG_PRIVATE_KEY is required}"
+  : "${GPG_PASSPHRASE:?GPG_PASSPHRASE is required}"
+  verify_public_key "$(checked_in_public_key)"
+
+  shopt -s nullglob
+  local packages=("$BUILD_OUTPUT_DIR"/*.pkg.tar.zst)
+  shopt -u nullglob
+  rm -f "$REPO_DIR/.no-changes"
+  if (( ${#packages[@]} > 0 )); then
+    "$BUILD_ROOT/bin/repo" sign --local --arch "$ARCH" --mirror "$MIRROR"
+    "$BUILD_ROOT/bin/normalize-github-release-packages" "$BUILD_OUTPUT_DIR"
+    "$BUILD_ROOT/bin/repo" promote --local --arch "$ARCH" --mirror "$MIRROR"
+  fi
+
+  build_docker_image "$BUILD_ROOT/build" "$ARCH" "$MIRROR"
+  read -r -a platform_args <<< "$(get_platform_arg "$ARCH")"
+  local remote_repository_server validation_mode
+  remote_repository_server="https://github.com/$REPOSITORY/releases/download/$RELEASE_TAG"
+  validation_mode=incremental
+  if [[ -f $FULL_REBUILD_MARKER ]]; then
+    remote_repository_server=""
+    validation_mode=full
+  fi
+  docker run --rm "${platform_args[@]}" --user root \
+    -e GPG_PRIVATE_KEY="$GPG_PRIVATE_KEY" \
+    -e GPG_PASSPHRASE="$GPG_PASSPHRASE" \
+    -e EXPECTED_SIGNING_FINGERPRINT="$(expected_fingerprint)" \
+    -e REMOTE_REPOSITORY_SERVER="$remote_repository_server" \
+    -e VALIDATION_MODE="$validation_mode" \
+    -e GITHUB_SHA="${GITHUB_SHA:-unknown}" \
+    -v "$REPO_DIR:/repository" \
+    -v "$BUILD_ROOT/config:/config:ro" \
+    -v "$BUILD_ROOT/pkgbuilds:/pkgbuilds:ro" \
+    -v "$BUILD_ROOT/pkgbuilds/omarchy-aarch64-keyring:/public:ro" \
+    -v "$BUILD_ROOT/build:/build:ro" \
+    "omarchy-pkg-builder:latest-$ARCH-$MIRROR" /build/github-release-prepare.sh
+}
+
+publish_repository() {
+  if [[ -f $FULL_REBUILD_MARKER ]]; then
+    echo "ERROR: a zero-baseline validation repository must never be published." >&2
+    return 1
+  fi
+  if [[ -f $REPO_DIR/.no-changes ]]; then
+    echo "No package changes; skipping GitHub publication."
+    return 0
+  fi
+  "$BUILD_ROOT/bin/publish-github-release" \
+    --repository "$REPOSITORY" --repo-dir "$REPO_DIR" --tag "$RELEASE_TAG"
+}
+
+case "$COMMAND" in
+  seed) seed_repository ;;
+  build) build_packages ;;
+  prepare) prepare_repository ;;
+  publish) publish_repository ;;
+  scope) validate_scope; scope_packages ;;
+  run)
+    seed_repository
+    build_packages
+    prepare_repository
+    if [[ $NO_BASELINE == true ]]; then
+      echo "Full-rebuild validation completed; publication is intentionally disabled."
+    else
+      publish_repository
+    fi
+    ;;
+  full-rebuild)
+    NO_BASELINE=true
+    seed_repository
+    build_packages
+    prepare_repository
+    echo "Full-rebuild validation completed; publication is intentionally disabled."
+    ;;
+  -h|--help|help) usage ;;
+  *) echo "Unknown command: $COMMAND" >&2; usage >&2; exit 1 ;;
+esac

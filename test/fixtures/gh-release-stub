@@ -1,0 +1,66 @@
+#!/bin/bash
+
+set -euo pipefail
+
+: "${GH_STUB_LOG:?}"
+: "${GH_STUB_ASSETS:?}"
+: "${GH_STUB_UPLOADS:?}"
+
+case "${1:-} ${2:-}" in
+  "release view")
+    if [[ " $* " == *" --json databaseId "* ]]; then
+      printf '12345\n'
+    fi
+    ;;
+  "release upload")
+    path=${!#}
+    asset=${path##*/}
+    hash=$(sha256sum "$path" | awk '{ print $1 }')
+    printf '%s %s\n' "$asset" "$hash" >> "$GH_STUB_UPLOADS"
+    printf 'upload %s\n' "$asset" >> "$GH_STUB_LOG"
+    ;;
+  "release edit")
+    printf 'edit %s\n' "$*" >> "$GH_STUB_LOG"
+    ;;
+  "release delete-asset")
+    printf 'delete-asset %s\n' "${4:-}" >> "$GH_STUB_LOG"
+    ;;
+  "release list")
+    printf 'old-snapshot\tfalse\n'
+    ;;
+  "release delete")
+    printf 'delete-release %s\n' "${3:-}" >> "$GH_STUB_LOG"
+    ;;
+  "api "*)
+    assets='[]'
+    if [[ " $* " == *" --jq "* ]]; then
+      {
+        cat "$GH_STUB_ASSETS"
+        awk '{ print $1 }' "$GH_STUB_UPLOADS"
+      } | sed '/^$/d' | sort -u
+      exit 0
+    fi
+    while IFS= read -r name; do
+      [[ -n $name ]] || continue
+      awk -v wanted="$name" '$1 == wanted { found=1 } END { exit !found }' "$GH_STUB_UPLOADS" && continue
+      assets=$(jq -c --arg name "$name" '. + [{name: $name, digest: ""}]' <<< "$assets")
+    done < "$GH_STUB_ASSETS"
+    while read -r name hash; do
+      [[ -n ${name:-} ]] || continue
+      assets=$(jq -c --arg name "$name" --arg digest "sha256:$hash" \
+        '. + [{name: $name, digest: $digest}]' <<< "$assets")
+    done < "$GH_STUB_UPLOADS"
+    jq -n --argjson assets "$assets" '[$assets]'
+    ;;
+  "release create")
+    printf 'create %s\n' "$*" >> "$GH_STUB_LOG"
+    ;;
+  "release download")
+    echo "unexpected download fallback" >&2
+    exit 1
+    ;;
+  *)
+    echo "unsupported gh invocation: $*" >&2
+    exit 1
+    ;;
+esac
