@@ -15,6 +15,7 @@ baseline_sums=${BASELINE_SUMS:-$repository/.baseline-SHA256SUMS}
 remote_server=${REMOTE_REPOSITORY_SERVER:-}
 commit=${GITHUB_SHA:-unknown}
 validation_mode=${VALIDATION_MODE:-incremental}
+channel=${REPOSITORY_CHANNEL:-edge}
 full_rebuild_marker=$repository/.full-rebuild-validation
 
 : "${GPG_PRIVATE_KEY:?GPG_PRIVATE_KEY is required}"
@@ -24,6 +25,10 @@ full_rebuild_marker=$repository/.full-rebuild-validation
   echo "ERROR: invalid expected signing fingerprint" >&2
   exit 1
 }
+case "$channel" in
+  edge|rc|stable) ;;
+  *) echo "ERROR: invalid repository channel: $channel" >&2; exit 1 ;;
+esac
 [[ -d $repository && -f $scope && -f $fork_scope && -f $public_key ]] || {
   echo "ERROR: repository, package scopes, or public key is missing" >&2
   exit 1
@@ -395,7 +400,7 @@ fi
 
 jq -S -n \
   --arg architecture aarch64 \
-  --arg channel stable \
+  --arg channel "$channel" \
   --arg commit "$commit" \
   --arg validation_mode "$validation_mode" \
   --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -411,11 +416,12 @@ jq -S -n \
 
 jq -S -s \
   --arg architecture aarch64 \
+  --arg channel "$channel" \
   --arg validation_mode "$validation_mode" \
   --arg commit "$commit" \
   --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --argjson package_base_count "${#package_bases[@]}" \
-  '{schema: 1, architecture: $architecture,
+  '{schema: 1, architecture: $architecture, channel: $channel,
     validation_mode: $validation_mode, commit: $commit,
     generated_at: $generated_at, package_base_count: $package_base_count,
     archive_count: length, packages: .}' \

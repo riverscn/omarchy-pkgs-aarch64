@@ -2,16 +2,15 @@
 
 ## Purpose
 
-This branch is a replacement experiment for the fork's current `master`
-release automation. It starts from the upstream-ready AArch64 support branch
-and keeps GitHub Actions as a storage and orchestration adapter around the
-normal Omarchy package tools.
+This fork starts from the upstream-ready AArch64 support branch and keeps
+GitHub Actions as a storage and orchestration adapter around the normal Omarchy
+package tools.
 
 It does not change the upstream release host, rclone destination, release-ring
 policy, or x86_64 workflow. Those remain the source design. The fork-specific
-adapter exists because this repository publishes a signed rolling pacman
-repository as assets in one GitHub Release rather than as a complete filesystem
-tree on the upstream repository host.
+adapter exists because this repository publishes each signed rolling pacman
+channel as assets in a GitHub Release rather than as a complete filesystem tree
+on the upstream repository host.
 
 ## Boundary with the upstream-ready branch
 
@@ -32,6 +31,7 @@ The GitHub adapter adds only:
 - an optional remote package server when the local workspace contains the
   database but not every unchanged archive;
 - incremental database assembly and complete-transaction validation;
+- channel-isolated Release tags and forward-only package advancement;
 - ordered GitHub Release uploads, with the signed database uploaded last.
 
 `bin/github-release-aarch64` is the entry point. It delegates builds, package
@@ -47,20 +47,68 @@ not a second build path. Repository initialization also fails immediately if
 the empty local build database or its first pacman synchronization cannot be
 created, instead of repeating one setup failure for every package.
 
-The adapter uses `edge/aarch64` only as the generic builder's local workspace.
-The externally published rolling repository is still identified as `stable` in
-its manifest. Arch Linux ARM is rolling, and this fork does not implement a
-second edge/rc/stable release train. Adding such a train should be discussed as
-a separate design rather than hidden in this compatibility layer.
+## Channel model
+
+The adapter implements the same three channels and release rules as the shared
+tooling. It does not introduce a fourth `dev` channel. The development pair,
+`omarchy-dev` and `omarchy-settings-dev`, is explicitly edge-only in its package
+metadata.
+
+Likewise, `alpha`, `beta`, and `rc` in `bin/omarchy-pkgs release` are package
+version labels, not additional repository channels. Their pinned artifacts are
+published to the repository channel selected by the upstream release workflow;
+the storage layout remains exactly `edge`, `rc`, and `stable`.
+
+| Channel | Managed tag | Client URL | Repository scope | Native build scope |
+| --- | --- | --- | ---: | ---: |
+| edge | `aarch64-edge` | `releases/download/aarch64-edge` | 118 bases | 118 bases |
+| rc | `aarch64-rc` | `releases/download/aarch64-rc` | 116 bases | 40 fast-ring bases, plus 2 pinned bases only from the `rc` branch |
+| stable | `aarch64-stable` | `releases/latest/download` or `releases/download/aarch64-stable` | 116 bases | 40 fast-ring bases |
+
+The scope is derived from the same `channels`, `release_ring`, and `pinned`
+metadata functions used by `bin/repo`. Normal packages are built in edge and
+their exact signed archives move forward through `edge → rc → stable`.
+Fast-ring packages are built independently against all three channel images.
+The pinned release pair can be built for rc only when `OMARCHY_RC_PINS=1`, which
+the workflow sets only for the standing `rc` branch.
+
+Stable is the only formal/latest GitHub Release. Edge and rc are prereleases,
+so the existing `/releases/latest/download` stable client URL cannot
+accidentally switch channels.
+
+The GitHub backend exposes the upstream transitions directly:
+
+```sh
+# One-time seed of rc from the existing stable repository
+bin/github-release-aarch64 advance --from stable --to rc --bootstrap
+
+# Open and ship a train
+bin/github-release-aarch64 advance --from edge --to rc
+bin/github-release-aarch64 advance --from rc --to stable
+```
+
+Advancement reads the signed source database, applies the shared destination
+eligibility rules, downloads only archives absent from the destination, verifies
+their source SHA-256 entries and detached signatures, rebuilds and signs the
+destination database, resolves every destination package transaction, and then
+uses the same atomic Release publisher. All selected archives are downloaded in
+one Release operation so bootstrap does not repeat the asset-list API request
+for every package. The Ubuntu runner host only reads the trusted PKGBUILD
+identity variables needed to match database entries; Arch-specific metadata
+generation, build selection, and repository auditing remain inside the normal
+native Arch builder image. Reverse movement and stable-to-rc
+movement without the explicit one-time bootstrap flag fail before any network
+mutation.
 
 ## Zero-baseline full validation
 
-The zero-baseline path is designed to run directly on a native AArch64 host.
+The zero-baseline path is edge-only and is designed to run directly on a native
+AArch64 host.
 It is a separate, read-only validation path rather than an unusual form of
 incremental release; a hosted manual dispatch may invoke the same commands,
 but is not required for acceptance:
 
-1. `seed --no-baseline` deletes the generated repository workspace and creates
+1. `seed --channel edge --no-baseline` deletes the generated repository workspace and creates
    only a full-rebuild marker. It does not call the GitHub Release API, download
    a database, or copy baseline checksums.
 2. With no final database available for version comparison, the regular
@@ -106,7 +154,7 @@ remain a separate follow-up rather than being hidden in the release adapter.
 
 ## Package scope
 
-The adapter builds 118 package bases from two deliberately separate manifests:
+The adapter configures 118 package bases from two deliberately separate manifests:
 
 - `config/aarch64-packages` is the complete 116-base range that the
   upstream-ready tree selects for an `edge/aarch64` build, including the two
@@ -125,9 +173,11 @@ bases and the fork overlay to contain exactly the two reviewed additions. It
 also independently derives the complete `edge/aarch64` set from package
 metadata, requires it to match the combined manifests, and checks that removing
 the overlay yields the upstream-aligned manifest exactly. Finally, it generates
-`.SRCINFO` with `CARCH=aarch64` for every scoped base. Upstream package
-additions, removals, channel changes, or accidental fork-only additions cannot
-drift silently.
+`.SRCINFO` with `CARCH=aarch64` for every scoped base and requires the derived
+edge, rc, and stable repository/build scopes to remain 118/116/116 and
+118/40/40 bases respectively. An RC-branch build includes exactly the two
+additional pinned bases. Upstream package additions, removals, channel changes,
+or accidental fork-only additions cannot drift silently.
 
 The integration also carries forward the current fork's newer package state
 where the upstream-ready branch alone would be a downgrade:
@@ -153,15 +203,17 @@ path.
 
 ## Publication transaction
 
-1. Download metadata for the managed `aarch64-stable` Release.
+1. Download metadata for the selected `aarch64-<channel>` Release.
 2. Verify the checked-in public-key fingerprint, checksums, and signed baseline
    database.
-3. Pass that same checked-in key and fingerprint to the generic builder, then
-   build only versions missing from that database with `bin/repo build`.
+3. Derive the channel's native build set through the shared package metadata,
+   pass the checked-in key and fingerprint to the generic builder, and build
+   only versions missing from that channel database with `bin/repo build`.
 4. Sign and promote changed archives with `bin/repo sign` and
    `bin/repo promote`.
-5. Update the previous database with changed packages, remove entries outside
-   the declared scope, and sign the new database.
+5. Update the previous database with changed or advanced packages, remove
+   entries outside the selected channel's declared scope, and sign the new
+   database with the manifest channel set explicitly.
 6. Require every scoped package output in the database and resolve each
    output's complete pacman dependency transaction using local changed archives
    plus unchanged Release assets.
@@ -208,15 +260,25 @@ The `release` environment must provide:
 - `AARCH64_GPG_PASSPHRASE` — non-interactive key passphrase.
 
 The workflow uses the job-scoped `github.token` for Release access and declares
-only `contents: write`. Pushes to `master` use the verified baseline and publish
-incrementally. Manual runs default to a zero-baseline full rebuild without
-publishing. To exercise the incremental path manually, select
-`full_rebuild=false`; `publish=true` must also be selected explicitly to update
-the rolling Release.
+only `contents: write`. Pushes to `master` update edge and every already
+initialized rc/stable channel; an uninitialized non-edge channel is skipped
+until its explicit bootstrap. Pushes to `rc` update only rc and enable the
+shared pinned-package guard. Manual `release` runs select one channel and are
+incremental/non-publishing by default. A manual full rebuild is accepted only
+for edge and can never publish. The three manual advancement operations map
+one-to-one to stable-to-rc bootstrap, edge-to-rc advance, and rc-to-stable
+advance.
 
-## Replacement checklist
+The initial fork rollout is deliberate: retain the already validated
+`aarch64-stable`, publish the first `aarch64-edge`, update the legacy stable
+snapshot so its two edge-only development packages are removed, bootstrap
+`aarch64-rc` from that stable snapshot, and then use only forward advancement.
+No workflow silently constructs rc or stable by rebuilding the complete edge
+set.
 
-Do not replace `master` based only on static tests. Before cutover:
+## Validation checklist
+
+Do not change a production channel based only on static tests:
 
 1. Run all repository self-tests and the adapter test.
 2. On a native AArch64 host, export the fork's signing key and run
@@ -232,8 +294,7 @@ Do not replace `master` based only on static tests. Before cutover:
    the incremental build path. Versioned packages and unchanged VCS refs must
    remain up to date; any queued VCS package must correspond to a ref that
    genuinely advanced after the zero-baseline build.
-6. Review the branch diff once more, then fast-forward or merge it into the
-   fork's `master` only after those checks pass.
+6. Review the branch diff once more and publish only after those checks pass.
 
 The zero-baseline run is expected to be expensive. That is an operational
 limitation, not a reason to add emulation or a parallel package-building
@@ -257,11 +318,23 @@ advanced from `158e8cf` to `002c70a` during the multi-hour validation, which is
 the intended VCS update behavior. No GitHub workflow or QEMU was used.
 
 A later production rehearsal published the same 118-base/147-archive scope to
-the managed rolling Release and independently verified all 305 referenced
-asset digests, four repository signatures, the configured signing fingerprint,
-and exact manifest/audit/database package-name parity. Its first automatic
+the managed `aarch64-stable` Release under the former single-channel model and
+independently verified all 305 referenced asset digests, four repository
+signatures, the configured signing fingerprint, and exact
+manifest/audit/database package-name parity. The first channel-aware stable
+publication deliberately reduces that legacy snapshot to 116 bases by removing
+the two edge-only development packages. Its first automatic
 incremental follow-up exposed a missing pacman key handoff before any Release
 mutation occurred. After adding the generic pinned-key interface, a local
 native ARM reproduction synchronized that production-signed database and
 correctly skipped an up-to-date package; a deliberately wrong fingerprint
 failed before repository synchronization.
+
+The channel adapter was then rehearsed locally on the same native AArch64 host.
+The signed production database selected all 118 edge bases—including
+`omarchy-dev` and `omarchy-settings-dev`—and skipped all 118 as current. Separate
+stable and bootstrapped-rc runs selected exactly their 40 fast-ring bases and
+also skipped all 40 as current. The three runs imported the pinned repository
+key, synchronized the channel database, and used the regular Docker builder;
+none registered binfmt or invoked QEMU. This validates channel isolation and
+incremental selection without mutating a GitHub Release.
