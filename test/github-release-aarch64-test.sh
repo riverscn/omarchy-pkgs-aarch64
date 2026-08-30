@@ -22,6 +22,54 @@ packages=("${upstream_packages[@]}" "${fork_packages[@]}")
   echo "Expected 116 upstream edge package bases plus 2 fork additions; found ${#packages[@]}" >&2
   exit 1
 }
+
+assert_scope_count() {
+  local command=$1 channel=$2 expected=$3 actual
+  actual=$("$ROOT/bin/github-release-aarch64" "$command" --channel "$channel" | sed '1d' | wc -l)
+  [[ $actual -eq $expected ]] || {
+    echo "Expected $expected entries from $command for $channel; found $actual" >&2
+    exit 1
+  }
+}
+
+assert_scope_count scope edge 118
+assert_scope_count scope rc 116
+assert_scope_count scope stable 116
+assert_scope_count build-scope edge 118
+assert_scope_count build-scope rc 40
+assert_scope_count build-scope stable 40
+rc_pinned_count=$(OMARCHY_RC_PINS=1 "$ROOT/bin/github-release-aarch64" \
+  build-scope --channel rc | sed '1d' | wc -l)
+[[ $rc_pinned_count -eq 42 ]] || {
+  echo "Expected the 40 fast-ring bases plus 2 pinned RC bases; found $rc_pinned_count" >&2
+  exit 1
+}
+edge_scope_output=$("$ROOT/bin/github-release-aarch64" scope --channel edge)
+rc_scope_output=$("$ROOT/bin/github-release-aarch64" scope --channel rc)
+stable_scope_output=$("$ROOT/bin/github-release-aarch64" scope --channel stable)
+for development_package in omarchy-dev omarchy-settings-dev; do
+  grep -Fxq "$development_package" <<< "$edge_scope_output"
+  if grep -Fxq "$development_package" <<< "$rc_scope_output"; then
+    echo "$development_package leaked from edge into rc" >&2
+    exit 1
+  fi
+  if grep -Fxq "$development_package" <<< "$stable_scope_output"; then
+    echo "$development_package leaked from edge into stable" >&2
+    exit 1
+  fi
+done
+if "$ROOT/bin/github-release-aarch64" advance --from stable --to edge \
+  >"$work/reverse-advance.out" 2>&1; then
+  echo "GitHub adapter allowed a reverse channel advance" >&2
+  exit 1
+fi
+grep -Fq 'releases move edge -> rc -> stable' "$work/reverse-advance.out"
+if "$ROOT/bin/github-release-aarch64" seed --channel rc --no-baseline \
+  >"$work/rc-full.out" 2>&1; then
+  echo "GitHub adapter allowed a zero-baseline RC build" >&2
+  exit 1
+fi
+grep -Fq 'zero-baseline validation applies only to edge' "$work/rc-full.out"
 [[ ${#fork_packages[@]} -eq 2 ]] || {
   echo "Expected exactly 2 explicit fork package bases; found ${#fork_packages[@]}" >&2
   exit 1
@@ -210,17 +258,56 @@ grep -Fq 'runs-on: ubuntu-24.04-arm' "$workflow" || {
   echo "AArch64 publisher is not pinned to a native ARM runner" >&2
   exit 1
 }
-grep -A5 -F 'full_rebuild:' "$workflow" | grep -Fq 'default: true' || {
-  echo "Manual AArch64 validation does not default to a zero-baseline full rebuild" >&2
+grep -A5 -F 'full_rebuild:' "$workflow" | grep -Fq 'default: false' || {
+  echo "Manual AArch64 channel release does not default to an expensive full rebuild" >&2
   exit 1
 }
-grep -Fq 'seed --no-baseline' "$workflow" || {
+grep -Fq -- '--no-baseline' "$workflow" || {
   echo "Workflow cannot initialize a zero-baseline repository" >&2
+  exit 1
+}
+for channel in edge rc stable; do
+  grep -Fq -- "- $channel" "$workflow" || {
+    echo "Workflow does not expose the $channel channel" >&2
+    exit 1
+  }
+done
+for operation in bootstrap-rc advance-edge-rc advance-rc-stable; do
+  grep -Fq -- "- $operation" "$workflow" || {
+    echo "Workflow does not expose $operation" >&2
+    exit 1
+  }
+done
+grep -Fq 'OMARCHY_RC_PINS:' "$workflow" || {
+  echo "RC branch builds do not enable the upstream pinned-package guard" >&2
+  exit 1
+}
+grep -Fq 'REPOSITORY_CHANNEL="$CHANNEL"' "$ROOT/bin/github-release-aarch64" || {
+  echo "Repository preparation does not receive the selected channel" >&2
+  exit 1
+}
+grep -Fq -- '--channel "$CHANNEL"' "$ROOT/bin/github-release-aarch64" || {
+  echo "Publisher does not receive the selected channel" >&2
   exit 1
 }
 grep -Fq 'a zero-baseline validation repository must never be published' \
   "$ROOT/bin/github-release-aarch64" || {
   echo "Full-rebuild output is not protected against publication" >&2
+  exit 1
+}
+grep -Fq 'download_args+=(--pattern "$filename" --pattern "$filename.sig")' \
+  "$ROOT/bin/github-release-aarch64" || {
+    echo "Channel advancement does not batch GitHub Release downloads" >&2
+    exit 1
+  }
+advance_metadata_function=$(sed -n '/^metadata_entry_map()/,/^}/p' \
+  "$ROOT/bin/github-release-aarch64")
+if grep -Fq 'makepkg' <<< "$advance_metadata_function"; then
+  echo "Channel advancement requires Arch-only makepkg on the Ubuntu runner host" >&2
+  exit 1
+fi
+grep -Fq 'source PKGBUILD' <<< "$advance_metadata_function" || {
+  echo "Channel advancement does not derive package identities from PKGBUILD" >&2
   exit 1
 }
 for invariant in \
@@ -314,6 +401,8 @@ printf 'new signature\n' > "$repo/$new_package.sig"
 for asset in "${metadata[@]}"; do
   printf 'new %s\n' "$asset" > "$repo/$asset"
 done
+printf '{"schema":1,"architecture":"aarch64","channel":"stable"}\n' \
+  > "$repo/repository-manifest.json"
 {
   printf '%s  %s\n' "$old_hash" "$old_package"
   printf '%s  %s.sig\n' "$old_sig_hash" "$old_package"
@@ -330,7 +419,8 @@ done
 
 PATH="$stub_bin:$PATH" GH_TOKEN=test \
   "$ROOT/bin/publish-github-release" \
-    --repository example/repo --repo-dir "$repo" --tag aarch64-stable >/dev/null
+    --repository example/repo --repo-dir "$repo" --tag aarch64-stable \
+    --channel stable >/dev/null
 
 grep -Fxq "upload $new_package" "$GH_STUB_LOG"
 grep -Fxq "upload $new_package.sig" "$GH_STUB_LOG"
@@ -352,14 +442,51 @@ grep -Fxq "delete-asset $stale_package.sig" "$GH_STUB_LOG"
   echo "Adapter attempted to delete an unrelated GitHub Release" >&2
   exit 1
 }
+grep -E '^edit .*Omarchy AArch64 stable \(rolling\).*--latest' "$GH_STUB_LOG" >/dev/null || {
+  echo "Stable publisher did not preserve the latest rolling Release" >&2
+  exit 1
+}
 
 : > "$GH_STUB_LOG"
 PATH="$stub_bin:$PATH" GH_TOKEN=test \
   "$ROOT/bin/publish-github-release" \
-    --repository example/repo --repo-dir "$repo" --tag aarch64-stable >/dev/null
+    --repository example/repo --repo-dir "$repo" --tag aarch64-stable \
+    --channel stable >/dev/null
 ! grep -Eq '^upload .+\.pkg\.tar\.zst(\.sig)?$' "$GH_STUB_LOG" || {
   echo "Publisher retransferred an asset that GitHub already stored" >&2
   exit 1
 }
+
+# Edge and rc are explicit prerelease channels, never candidates for GitHub's
+# /releases/latest/download endpoint used by stable clients.
+printf '{"schema":1,"architecture":"aarch64","channel":"edge"}\n' \
+  > "$repo/repository-manifest.json"
+{
+  printf '%s  %s\n' "$old_hash" "$old_package"
+  printf '%s  %s.sig\n' "$old_sig_hash" "$old_package"
+  (cd "$repo" && sha256sum "$new_package" "$new_package.sig" "${metadata[@]}")
+} > "$repo/SHA256SUMS"
+: > "$GH_STUB_LOG"
+: > "$GH_STUB_UPLOADS"
+PATH="$stub_bin:$PATH" GH_TOKEN=test \
+  "$ROOT/bin/publish-github-release" \
+    --repository example/repo --repo-dir "$repo" --tag aarch64-edge \
+    --channel edge >/dev/null
+grep -E '^edit .*Omarchy AArch64 edge \(rolling\).*--prerelease' "$GH_STUB_LOG" >/dev/null || {
+  echo "Edge publisher did not mark the rolling Release as a prerelease" >&2
+  exit 1
+}
+if grep -E '^edit .*--latest' "$GH_STUB_LOG" >/dev/null; then
+  echo "Edge publisher attempted to replace the stable latest Release" >&2
+  exit 1
+fi
+if PATH="$stub_bin:$PATH" GH_TOKEN=test \
+  "$ROOT/bin/publish-github-release" \
+    --repository example/repo --repo-dir "$repo" --tag aarch64-rc \
+    --channel rc >"$work/channel-mismatch.out" 2>&1; then
+  echo "Publisher accepted a repository manifest from the wrong channel" >&2
+  exit 1
+fi
+grep -Fq "does not match 'rc'" "$work/channel-mismatch.out"
 
 echo "PASS: native AArch64 GitHub Release adapter preserves scope and atomic publication"

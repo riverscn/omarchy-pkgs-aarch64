@@ -1,45 +1,58 @@
 #!/bin/bash
 
-# Thin GitHub Release backend for the fork's native AArch64 repository.
-# Package discovery, version comparison, building, and package signing remain
-# delegated to the regular bin/repo commands.
+# Thin GitHub Release backend for the fork's native AArch64 repositories.
+# Package discovery, channel eligibility, version comparison, building, and
+# package signing remain delegated to the regular Omarchy package tooling.
 
 set -euo pipefail
 
 BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
 source "$BUILD_ROOT/helpers/message-helpers.sh"
 source "$BUILD_ROOT/helpers/docker-helpers.sh"
+source "$BUILD_ROOT/helpers/package-metadata.sh"
 
 ARCH=aarch64
-MIRROR=edge
+CHANNEL=${AARCH64_CHANNEL:-edge}
 SCOPE="$BUILD_ROOT/config/aarch64-packages"
 FORK_SCOPE="$BUILD_ROOT/config/aarch64-fork-packages"
-REPO_DIR="$BUILD_ROOT/pkgs.omarchy.org/$MIRROR/$ARCH"
-BUILD_OUTPUT_DIR="$BUILD_ROOT/build-output/$MIRROR/$ARCH"
 REPOSITORY=${GITHUB_REPOSITORY:-riverscn/omarchy-pkgs-aarch64}
-RELEASE_TAG=${AARCH64_RELEASE_TAG:-aarch64-stable}
-FULL_REBUILD_MARKER="$REPO_DIR/.full-rebuild-validation"
+RELEASE_TAG=${AARCH64_RELEASE_TAG:-}
+SOURCE_RELEASE_TAG=""
+FROM_CHANNEL=""
+TO_CHANNEL=""
 NO_BASELINE=false
+BOOTSTRAP=false
+ALLOW_EMPTY_BASELINE=false
 
 usage() {
   cat <<EOF
 Usage: $0 <command> [OPTIONS]
 
 Commands:
-  seed       Download and verify the current rolling repository metadata
-  build      Build changed packages with the regular Omarchy builder
-  prepare    Sign, assemble, and validate the next repository snapshot
-  publish    Atomically update the managed GitHub Release
-  run        Run seed, build, prepare, and publish
-  full-rebuild
-             Build and validate the complete scope from an empty repository
-  scope      Validate and print the configured package-base scope
+  seed         Download and verify one channel's rolling repository metadata
+  build        Build packages that are native to the selected channel
+  prepare      Sign, assemble, and validate the next repository snapshot
+  publish      Atomically update the selected channel's GitHub Release
+  run          Run seed, build, prepare, and publish
+  full-rebuild Build and validate the complete edge scope from an empty repository
+  scope        Validate and print the selected channel's repository scope
+  build-scope  Validate and print packages built natively in the channel
+  advance      Move packages forward through edge -> rc -> stable
 
 Options:
-  --repository <owner/repo>  GitHub repository (default: GITHUB_REPOSITORY)
-  --tag <tag>                Managed rolling Release tag (default: aarch64-stable)
-  --no-baseline             Do not read the existing Release (seed/run only)
+  --channel <edge|rc|stable>  Repository channel (default: edge)
+  --repository <owner/repo>   GitHub repository (default: GITHUB_REPOSITORY)
+  --tag <tag>                 Target Release tag (default: aarch64-<channel>)
+  --source-tag <tag>          Source Release tag for advance
+  --from <channel>            Source channel for advance
+  --to <channel>              Destination channel for advance
+  --bootstrap                 Allow the one-time stable -> rc bootstrap
+  --no-baseline              Do not read the existing edge Release
 EOF
+}
+
+valid_channel() {
+  case "$1" in edge|rc|stable) return 0 ;; *) return 1 ;; esac
 }
 
 COMMAND=${1:-}
@@ -48,28 +61,96 @@ shift
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --channel) [[ $# -ge 2 ]] || { echo "ERROR: --channel needs a value" >&2; exit 1; }; CHANNEL=$2; shift 2 ;;
     --repository) [[ $# -ge 2 ]] || { echo "ERROR: --repository needs a value" >&2; exit 1; }; REPOSITORY=$2; shift 2 ;;
     --tag) [[ $# -ge 2 ]] || { echo "ERROR: --tag needs a value" >&2; exit 1; }; RELEASE_TAG=$2; shift 2 ;;
+    --source-tag) [[ $# -ge 2 ]] || { echo "ERROR: --source-tag needs a value" >&2; exit 1; }; SOURCE_RELEASE_TAG=$2; shift 2 ;;
+    --from) [[ $# -ge 2 ]] || { echo "ERROR: --from needs a value" >&2; exit 1; }; FROM_CHANNEL=$2; shift 2 ;;
+    --to) [[ $# -ge 2 ]] || { echo "ERROR: --to needs a value" >&2; exit 1; }; TO_CHANNEL=$2; shift 2 ;;
+    --bootstrap) BOOTSTRAP=true; shift ;;
     --no-baseline) NO_BASELINE=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
 
+if [[ $COMMAND == advance ]]; then
+  [[ -n $FROM_CHANNEL && -n $TO_CHANNEL ]] || {
+    echo "ERROR: advance requires --from and --to" >&2
+    exit 1
+  }
+  CHANNEL=$TO_CHANNEL
+fi
+valid_channel "$CHANNEL" || { echo "ERROR: invalid channel: $CHANNEL" >&2; exit 1; }
+[[ -z $FROM_CHANNEL ]] || valid_channel "$FROM_CHANNEL" || {
+  echo "ERROR: invalid source channel: $FROM_CHANNEL" >&2
+  exit 1
+}
+[[ $REPOSITORY =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+  echo "ERROR: invalid GitHub repository: $REPOSITORY" >&2
+  exit 1
+}
+[[ -z $RELEASE_TAG || $RELEASE_TAG =~ ^[A-Za-z0-9._-]+$ ]] || {
+  echo "ERROR: invalid target Release tag: $RELEASE_TAG" >&2
+  exit 1
+}
+[[ -z $SOURCE_RELEASE_TAG || $SOURCE_RELEASE_TAG =~ ^[A-Za-z0-9._-]+$ ]] || {
+  echo "ERROR: invalid source Release tag: $SOURCE_RELEASE_TAG" >&2
+  exit 1
+}
+
 if [[ $NO_BASELINE == true && $COMMAND != seed && $COMMAND != run && $COMMAND != full-rebuild ]]; then
   echo "ERROR: --no-baseline is valid only with seed, run, or full-rebuild" >&2
   exit 1
 fi
+if [[ $NO_BASELINE == true && $CHANNEL != edge ]]; then
+  echo "ERROR: zero-baseline validation applies only to edge; rc and stable are populated by channel advancement" >&2
+  exit 1
+fi
+if [[ $COMMAND == full-rebuild && $CHANNEL != edge ]]; then
+  echo "ERROR: full-rebuild applies only to edge" >&2
+  exit 1
+fi
+if [[ $BOOTSTRAP == true && $COMMAND != advance ]]; then
+  echo "ERROR: --bootstrap is valid only with advance" >&2
+  exit 1
+fi
 
-scope_packages() {
+MIRROR=$CHANNEL
+RELEASE_TAG=${RELEASE_TAG:-"aarch64-$CHANNEL"}
+REPO_DIR="$BUILD_ROOT/pkgs.omarchy.org/$MIRROR/$ARCH"
+BUILD_OUTPUT_DIR="$BUILD_ROOT/build-output/$MIRROR/$ARCH"
+FULL_REBUILD_MARKER="$REPO_DIR/.full-rebuild-validation"
+CHANNEL_SCOPE="$REPO_DIR/.channel-package-scope"
+CHANNEL_FORK_SCOPE="$REPO_DIR/.channel-fork-scope"
+
+configured_scope_packages() {
   sed -E '/^[[:space:]]*(#|$)/d' "$SCOPE" "$FORK_SCOPE"
+}
+
+repository_scope_packages() {
+  local package pkgdir
+  while IFS= read -r package; do
+    pkgdir="$BUILD_ROOT/pkgbuilds/$package"
+    package_in_channel "$pkgdir" "$CHANNEL" && printf '%s\n' "$package"
+  done < <(configured_scope_packages)
+  return 0
+}
+
+build_scope_packages() {
+  local package pkgdir
+  while IFS= read -r package; do
+    pkgdir="$BUILD_ROOT/pkgbuilds/$package"
+    package_builds_for_mirror "$pkgdir" "$CHANNEL" && printf '%s\n' "$package"
+  done < <(repository_scope_packages)
+  return 0
 }
 
 validate_scope() {
   [[ -f $SCOPE ]] || { echo "ERROR: missing package scope: $SCOPE" >&2; return 1; }
   [[ -f $FORK_SCOPE ]] || { echo "ERROR: missing fork package scope: $FORK_SCOPE" >&2; return 1; }
 
-  local package count=0
+  local package count=0 channel_count=0
   declare -A seen=()
   while IFS= read -r package; do
     [[ $package =~ ^[a-zA-Z0-9@._+-]+$ ]] || {
@@ -86,9 +167,18 @@ validate_scope() {
       return 1
     }
     ((count += 1))
-  done < <(scope_packages)
+  done < <(configured_scope_packages)
   (( count > 0 )) || { echo "ERROR: package scope is empty" >&2; return 1; }
-  echo "Validated $count AArch64 package bases."
+
+  while IFS= read -r package; do ((channel_count += 1)); done < <(repository_scope_packages)
+  (( channel_count > 0 )) || { echo "ERROR: $CHANNEL repository scope is empty" >&2; return 1; }
+  echo "Validated $channel_count AArch64 package bases for $CHANNEL ($count configured)."
+}
+
+write_channel_scope() {
+  mkdir -p "$REPO_DIR"
+  repository_scope_packages > "$CHANNEL_SCOPE"
+  : > "$CHANNEL_FORK_SCOPE"
 }
 
 require_native_arm() {
@@ -127,34 +217,10 @@ verify_public_key() {
   }
 }
 
-seed_repository() (
-  command -v gpg >/dev/null || { echo "ERROR: gpg is required" >&2; return 1; }
-  validate_scope >/dev/null
-  verify_public_key "$(checked_in_public_key)"
-
-  rm -rf "$REPO_DIR"
-  mkdir -p "$REPO_DIR"
-
-  if [[ $NO_BASELINE == true ]]; then
-    touch "$FULL_REBUILD_MARKER"
-    echo "Initialized an empty, non-publishable full-rebuild repository."
-    return 0
-  fi
-
-  command -v gh >/dev/null || { echo "ERROR: gh is required" >&2; return 1; }
-
-  if ! gh release view "$RELEASE_TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
-    echo "No $RELEASE_TAG Release found; a complete repository will be built."
-    return 0
-  fi
-
-  local staging verify_home
-  staging=$(mktemp -d)
-  verify_home=$(mktemp -d)
-  trap 'rm -rf "$staging" "$verify_home"' EXIT
-  chmod 700 "$verify_home"
-
-  gh release download "$RELEASE_TAG" --repo "$REPOSITORY" --dir "$staging" \
+download_release_metadata() {
+  local tag=$1 destination=$2 expected_channel=$3 verify_home
+  mkdir -p "$destination"
+  gh release download "$tag" --repo "$REPOSITORY" --dir "$destination" \
     --pattern 'omarchy.db' \
     --pattern 'omarchy.db.sig' \
     --pattern 'omarchy.db.tar.zst' \
@@ -168,35 +234,83 @@ seed_repository() (
     --pattern 'omarchy-aarch64.gpg' \
     --pattern 'SHA256SUMS'
 
-  for required in SHA256SUMS omarchy.db.tar.zst omarchy.db.tar.zst.sig; do
-    [[ -f $staging/$required ]] || {
-      echo "ERROR: rolling Release lacks $required" >&2
+  for required in SHA256SUMS omarchy.db.tar.zst omarchy.db.tar.zst.sig repository-manifest.json; do
+    [[ -f $destination/$required ]] || {
+      echo "ERROR: $tag lacks $required" >&2
       return 1
     }
   done
+  (cd "$destination" && sha256sum --check --ignore-missing SHA256SUMS)
 
-  (cd "$staging" && sha256sum --check --ignore-missing SHA256SUMS)
+  verify_home=$(mktemp -d)
+  chmod 700 "$verify_home"
   GNUPGHOME=$verify_home gpg --batch --import "$(checked_in_public_key)" >/dev/null 2>&1
   GNUPGHOME=$verify_home gpg --batch --verify \
-    "$staging/omarchy.db.tar.zst.sig" "$staging/omarchy.db.tar.zst" >/dev/null
+    "$destination/omarchy.db.tar.zst.sig" "$destination/omarchy.db.tar.zst" >/dev/null
+  rm -rf "$verify_home"
+
+  [[ $(jq -r '.architecture // ""' "$destination/repository-manifest.json") == aarch64 ]] || {
+    echo "ERROR: $tag manifest is not an AArch64 repository" >&2
+    return 1
+  }
+  [[ $(jq -r '.channel // ""' "$destination/repository-manifest.json") == "$expected_channel" ]] || {
+    echo "ERROR: $tag manifest does not identify the $expected_channel channel" >&2
+    return 1
+  }
+}
+
+seed_repository() (
+  command -v gpg >/dev/null || { echo "ERROR: gpg is required" >&2; return 1; }
+  validate_scope >/dev/null
+  verify_public_key "$(checked_in_public_key)"
+
+  rm -rf "$REPO_DIR"
+  mkdir -p "$REPO_DIR"
+  write_channel_scope
+
+  if [[ $NO_BASELINE == true ]]; then
+    touch "$FULL_REBUILD_MARKER"
+    echo "Initialized an empty, non-publishable edge validation repository."
+    return 0
+  fi
+
+  command -v gh >/dev/null || { echo "ERROR: gh is required" >&2; return 1; }
+
+  if ! gh release view "$RELEASE_TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
+    if [[ $CHANNEL != edge && $ALLOW_EMPTY_BASELINE != true ]]; then
+      echo "ERROR: $RELEASE_TAG is not initialized; populate $CHANNEL through the forward channel pipeline first" >&2
+      return 1
+    fi
+    echo "No $RELEASE_TAG Release found; initializing an empty $CHANNEL repository."
+    return 0
+  fi
+
+  local staging
+  staging=$(mktemp -d)
+  trap 'rm -rf "$staging"' EXIT
+  download_release_metadata "$RELEASE_TAG" "$staging" "$CHANNEL"
 
   cp -- "$staging"/* "$REPO_DIR/"
   cp "$staging/SHA256SUMS" "$REPO_DIR/.baseline-SHA256SUMS"
   printf '%s\n' "$RELEASE_TAG" > "$REPO_DIR/.baseline-release-tag"
-  echo "Seeded and verified the signed database from $RELEASE_TAG."
+  write_channel_scope
+  echo "Seeded and verified the signed $CHANNEL database from $RELEASE_TAG."
 )
 
 build_packages() {
   require_native_arm
   validate_scope >/dev/null
-  mapfile -t packages < <(scope_packages)
+  mapfile -t packages < <(build_scope_packages)
+  (( ${#packages[@]} > 0 )) || {
+    echo "No package bases are built natively for $CHANNEL in this checkout."
+    return 0
+  }
 
   if [[ -f $FULL_REBUILD_MARKER ]]; then
-    # A retry must not treat a database produced by an earlier validation
-    # attempt as its baseline. Keep only the mode marker and rebuild all
-    # package bases from an empty final repository.
     find "$REPO_DIR" -mindepth 1 -maxdepth 1 \
-      ! -name "${FULL_REBUILD_MARKER##*/}" -exec rm -rf -- {} +
+      ! -name "${FULL_REBUILD_MARKER##*/}" \
+      ! -name "${CHANNEL_SCOPE##*/}" \
+      ! -name "${CHANNEL_FORK_SCOPE##*/}" -exec rm -rf -- {} +
     "$BUILD_ROOT/bin/repo" build --local --arch "$ARCH" --mirror "$MIRROR" \
       --package "${packages[@]}"
   else
@@ -214,6 +328,7 @@ prepare_repository() {
   : "${GPG_PRIVATE_KEY:?GPG_PRIVATE_KEY is required}"
   : "${GPG_PASSPHRASE:?GPG_PASSPHRASE is required}"
   verify_public_key "$(checked_in_public_key)"
+  write_channel_scope
 
   shopt -s nullglob
   local packages=("$BUILD_OUTPUT_DIR"/*.pkg.tar.zst)
@@ -239,6 +354,9 @@ prepare_repository() {
     -e GPG_PASSPHRASE="$GPG_PASSPHRASE" \
     -e EXPECTED_SIGNING_FINGERPRINT="$(expected_fingerprint)" \
     -e REMOTE_REPOSITORY_SERVER="$remote_repository_server" \
+    -e REPOSITORY_CHANNEL="$CHANNEL" \
+    -e PACKAGE_SCOPE=/repository/.channel-package-scope \
+    -e FORK_PACKAGE_SCOPE=/repository/.channel-fork-scope \
     -e VALIDATION_MODE="$validation_mode" \
     -e GITHUB_SHA="${GITHUB_SHA:-unknown}" \
     -v "$REPO_DIR:/repository" \
@@ -255,11 +373,177 @@ publish_repository() {
     return 1
   fi
   if [[ -f $REPO_DIR/.no-changes ]]; then
-    echo "No package changes; skipping GitHub publication."
+    echo "No $CHANNEL package changes; skipping GitHub publication."
     return 0
   fi
   "$BUILD_ROOT/bin/publish-github-release" \
-    --repository "$REPOSITORY" --repo-dir "$REPO_DIR" --tag "$RELEASE_TAG"
+    --repository "$REPOSITORY" --repo-dir "$REPO_DIR" \
+    --tag "$RELEASE_TAG" --channel "$CHANNEL"
+}
+
+validate_advance_direction() {
+  case "$FROM_CHANNEL->$TO_CHANNEL" in
+    "edge->rc"|"rc->stable")
+      [[ $BOOTSTRAP == false ]] || {
+        echo "ERROR: --bootstrap is only valid for stable -> rc" >&2
+        return 1
+      }
+      ;;
+    "stable->rc")
+      [[ $BOOTSTRAP == true ]] || {
+        echo "ERROR: stable -> rc requires --bootstrap" >&2
+        return 1
+      }
+      ;;
+    *)
+      echo "ERROR: refusing $FROM_CHANNEL -> $TO_CHANNEL; releases move edge -> rc -> stable" >&2
+      return 1
+      ;;
+  esac
+}
+
+database_manifest() {
+  local database=$1
+  tar -xOf "$database" --wildcards '*/desc' 2>/dev/null | awk '
+    function emit() {
+      if (name != "" && filename != "") printf "%s\t%s\t%s\n", name, base, filename
+      name = ""; base = ""; filename = ""
+    }
+    $0 == "%FILENAME%" { emit(); getline; filename = $0; next }
+    $0 == "%NAME%" { getline; name = $0; next }
+    $0 == "%BASE%" { getline; base = $0; next }
+    END { emit() }
+  '
+}
+
+metadata_entry_map() {
+  local package package_dir identities metadata_base package_name
+  while IFS= read -r package; do
+    package_dir="$BUILD_ROOT/pkgbuilds/$package"
+    package_in_channel "$package_dir" "$TO_CHANNEL" || continue
+    identities=$(cd "$package_dir" && CARCH=aarch64 bash -c '
+      set -e
+      source PKGBUILD >/dev/null
+      resolved_base=${pkgbase:-${pkgname[0]:-}}
+      [[ $resolved_base =~ ^[A-Za-z0-9@._+-]+$ ]] || exit 1
+      for resolved_name in "${pkgname[@]}"; do
+        [[ $resolved_name =~ ^[A-Za-z0-9@._+-]+$ ]] || exit 1
+        printf "%s\t%s\n" "$resolved_base" "$resolved_name"
+      done
+    ') || {
+      echo "ERROR: cannot evaluate package identities for $package" >&2
+      return 1
+    }
+    while IFS=$'\t' read -r metadata_base package_name; do
+      [[ -n $metadata_base && -n $package_name ]] &&
+        printf '%s\t%s\t%s\n' "$metadata_base" "$package_name" "$package_dir"
+    done <<< "$identities"
+  done < <(configured_scope_packages)
+}
+
+checksum_for() {
+  local sums=$1 wanted=$2
+  awk -v wanted="$wanted" '
+    { name=$2; sub(/^\*/, "", name) }
+    name == wanted && $1 ~ /^[0-9a-f]{64}$/ { print $1; found=1; exit }
+    END { exit !found }
+  ' "$sums"
+}
+
+stage_advance() (
+  require_native_arm
+  validate_advance_direction
+  command -v gh >/dev/null || { echo "ERROR: gh is required" >&2; return 1; }
+  command -v tar >/dev/null || { echo "ERROR: tar is required" >&2; return 1; }
+
+  local source_tag source_work entry_map name base filename key package_dir
+  local source_hash source_sig_hash target_hash target_sig_hash copied=0 present=0 skipped=0
+  local asset
+  local -a download_args=()
+  source_tag=${SOURCE_RELEASE_TAG:-"aarch64-$FROM_CHANNEL"}
+  source_work=$(mktemp -d)
+  entry_map=$(mktemp)
+  trap 'rm -rf "$source_work" "$entry_map"' EXIT
+  download_release_metadata "$source_tag" "$source_work" "$FROM_CHANNEL"
+  metadata_entry_map > "$entry_map"
+
+  declare -A entry_dirs=()
+  declare -A name_dirs=()
+  declare -A download_hashes=()
+  while IFS=$'\t' read -r base name package_dir; do
+    entry_dirs["$base:$name"]=$package_dir
+    name_dirs["$name"]=$package_dir
+  done < "$entry_map"
+
+  while IFS=$'\t' read -r name base filename; do
+    [[ $filename == "${filename##*/}" && $filename == *.pkg.tar.zst ]] || {
+      echo "ERROR: unsafe package filename in $source_tag: $filename" >&2
+      return 1
+    }
+    key="${base:-$name}:$name"
+    package_dir=${entry_dirs[$key]:-${name_dirs[$name]:-}}
+    if [[ -z $package_dir ]]; then
+      ((skipped += 1))
+      continue
+    fi
+    if [[ $BOOTSTRAP != true ]] && ! package_moves_to_channel "$package_dir" "$TO_CHANNEL"; then
+      ((skipped += 1))
+      continue
+    fi
+
+    source_hash=$(checksum_for "$source_work/SHA256SUMS" "$filename") || {
+      echo "ERROR: $source_tag checksum manifest lacks $filename" >&2
+      return 1
+    }
+    source_sig_hash=$(checksum_for "$source_work/SHA256SUMS" "$filename.sig") || {
+      echo "ERROR: $source_tag checksum manifest lacks $filename.sig" >&2
+      return 1
+    }
+    target_hash=$(checksum_for "$REPO_DIR/.baseline-SHA256SUMS" "$filename" 2>/dev/null || true)
+    target_sig_hash=$(checksum_for "$REPO_DIR/.baseline-SHA256SUMS" "$filename.sig" 2>/dev/null || true)
+    if [[ -n $target_hash || -n $target_sig_hash ]]; then
+      [[ $target_hash == "$source_hash" && $target_sig_hash == "$source_sig_hash" ]] || {
+        echo "ERROR: $filename or its signature already exists in $TO_CHANNEL with different bytes" >&2
+        return 1
+      }
+      ((present += 1))
+      continue
+    fi
+
+    download_args+=(--pattern "$filename" --pattern "$filename.sig")
+    download_hashes["$filename"]=$source_hash
+    download_hashes["$filename.sig"]=$source_sig_hash
+    ((copied += 1))
+  done < <(database_manifest "$source_work/omarchy.db.tar.zst")
+
+  # Resolve the Release asset listing once. Bootstrap can move hundreds of
+  # assets; invoking `gh release download` for each package would turn one
+  # forward channel operation into hundreds of redundant API requests.
+  if (( ${#download_args[@]} > 0 )); then
+    gh release download "$source_tag" --repo "$REPOSITORY" --dir "$REPO_DIR" \
+      "${download_args[@]}"
+  fi
+  for asset in "${!download_hashes[@]}"; do
+    [[ -f $REPO_DIR/$asset ]] || {
+      echo "ERROR: source Release did not provide $asset" >&2
+      return 1
+    }
+    [[ $(sha256sum "$REPO_DIR/$asset" | awk '{ print $1 }') == "${download_hashes[$asset]}" ]] || {
+      echo "ERROR: downloaded asset checksum mismatch: $asset" >&2
+      return 1
+    }
+  done
+
+  echo "Staged $copied package(s) for $FROM_CHANNEL -> $TO_CHANNEL; $present already present, $skipped not moved."
+)
+
+run_advance() {
+  validate_advance_direction
+  ALLOW_EMPTY_BASELINE=$BOOTSTRAP
+  seed_repository
+  stage_advance
+  prepare_repository
+  publish_repository
 }
 
 case "$COMMAND" in
@@ -267,23 +551,33 @@ case "$COMMAND" in
   build) build_packages ;;
   prepare) prepare_repository ;;
   publish) publish_repository ;;
-  scope) validate_scope; scope_packages ;;
+  scope) validate_scope; repository_scope_packages ;;
+  build-scope) validate_scope; build_scope_packages ;;
+  advance) run_advance ;;
   run)
     seed_repository
     build_packages
     prepare_repository
     if [[ $NO_BASELINE == true ]]; then
-      echo "Full-rebuild validation completed; publication is intentionally disabled."
+      echo "Full edge validation completed; publication is intentionally disabled."
     else
       publish_repository
     fi
     ;;
   full-rebuild)
+    CHANNEL=edge
+    MIRROR=edge
+    RELEASE_TAG=${AARCH64_RELEASE_TAG:-aarch64-edge}
+    REPO_DIR="$BUILD_ROOT/pkgs.omarchy.org/$MIRROR/$ARCH"
+    BUILD_OUTPUT_DIR="$BUILD_ROOT/build-output/$MIRROR/$ARCH"
+    FULL_REBUILD_MARKER="$REPO_DIR/.full-rebuild-validation"
+    CHANNEL_SCOPE="$REPO_DIR/.channel-package-scope"
+    CHANNEL_FORK_SCOPE="$REPO_DIR/.channel-fork-scope"
     NO_BASELINE=true
     seed_repository
     build_packages
     prepare_repository
-    echo "Full-rebuild validation completed; publication is intentionally disabled."
+    echo "Full edge validation completed; publication is intentionally disabled."
     ;;
   -h|--help|help) usage ;;
   *) echo "Unknown command: $COMMAND" >&2; usage >&2; exit 1 ;;

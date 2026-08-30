@@ -6,6 +6,10 @@ Build system for the Omarchy Package Repository. Builds PKGBUILDs from local sou
 
 The fork's native AArch64 GitHub Actions release adapter is documented in
 [`docs/aarch64-github-release-adapter.md`](docs/aarch64-github-release-adapter.md).
+It exposes the upstream `edge → rc → stable` train as the independently signed
+rolling Releases `aarch64-edge`, `aarch64-rc`, and `aarch64-stable`. There is no
+separate `dev` channel: `omarchy-dev` and `omarchy-settings-dev` are edge-only
+packages, matching their upstream metadata.
 
 ## PKGBUILDs
 
