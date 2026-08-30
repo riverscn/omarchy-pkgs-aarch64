@@ -42,7 +42,7 @@ Commands:
 Options:
   --channel <edge|rc|stable>  Repository channel (default: edge)
   --repository <owner/repo>   GitHub repository (default: GITHUB_REPOSITORY)
-  --tag <tag>                 Target Release tag (default: aarch64-<channel>)
+  --tag <tag>                 Target Release tag (must equal aarch64-<channel>)
   --source-tag <tag>          Source Release tag for advance
   --from <channel>            Source channel for advance
   --to <channel>              Destination channel for advance
@@ -118,6 +118,10 @@ fi
 
 MIRROR=$CHANNEL
 RELEASE_TAG=${RELEASE_TAG:-"aarch64-$CHANNEL"}
+[[ $RELEASE_TAG == "aarch64-$CHANNEL" ]] || {
+  echo "ERROR: target Release tag '$RELEASE_TAG' does not match managed channel tag 'aarch64-$CHANNEL'" >&2
+  exit 1
+}
 REPO_DIR="$BUILD_ROOT/pkgs.omarchy.org/$MIRROR/$ARCH"
 BUILD_OUTPUT_DIR="$BUILD_ROOT/build-output/$MIRROR/$ARCH"
 FULL_REBUILD_MARKER="$REPO_DIR/.full-rebuild-validation"

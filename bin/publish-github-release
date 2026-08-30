@@ -41,6 +41,10 @@ if [[ -z $release_tag && -s $repo_dir/.baseline-release-tag ]]; then
   release_tag=$(<"$repo_dir/.baseline-release-tag")
 fi
 release_tag=${release_tag:-"aarch64-$channel"}
+[[ $release_tag == "aarch64-$channel" ]] || {
+  echo "ERROR: target Release tag '$release_tag' does not match managed channel tag 'aarch64-$channel'" >&2
+  exit 1
+}
 
 manifest_channel=$(jq -r '.channel // ""' "$repo_dir/repository-manifest.json")
 [[ $manifest_channel == "$channel" ]] || {

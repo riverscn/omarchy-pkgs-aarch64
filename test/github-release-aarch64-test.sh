@@ -313,21 +313,34 @@ grep -Fq 'source PKGBUILD' <<< "$advance_metadata_function" || {
 for invariant in \
   'full validation must not configure a remote package fallback' \
   'full validation attempted to use a non-local archive' \
-  '/build/audit-package-architecture.sh --arch aarch64' \
-  '--reject-foreign'; do
+  'audit_args=(--arch aarch64 --reject-foreign --json)' \
+  '/build/audit-package-architecture.sh "${audit_args[@]}" "$package"'; do
   grep -Fq -- "$invariant" "$ROOT/build/github-release-prepare.sh" || {
     echo "Repository preparation lost full-rebuild invariant: $invariant" >&2
     exit 1
   }
 done
-for evidence_field in expanded_bytes nested_archive_count \
-  foreign_executable_count max_depth_seen; do
+for evidence_field in expanded_bytes non_target_elf_count \
+  reviewed_non_target_elf_count managed_pe_count nested_archive_count \
+  foreign_executable_count reviewed_foreign_executable_count max_depth_seen; do
   grep -Fq -- "--argjson $evidence_field" \
     "$ROOT/build/github-release-prepare.sh" || {
     echo "Repository audit omits recursive evidence: $evidence_field" >&2
     exit 1
   }
 done
+grep -Fq 'audit_args+=(--allowlist "$output_allowlist")' \
+  "$ROOT/build/github-release-prepare.sh" || {
+  echo 'Repository audit does not apply package-output architecture policies' >&2
+  exit 1
+}
+if "$ROOT/bin/github-release-aarch64" scope --channel edge \
+  --tag aarch64-stable >"$work/managed-tag.out" 2>&1; then
+  echo 'GitHub adapter accepted a stable tag for the edge channel' >&2
+  exit 1
+fi
+grep -Fq "does not match managed channel tag 'aarch64-edge'" \
+  "$work/managed-tag.out"
 if sed -E '/^[[:space:]]*#/d' \
   "$workflow" "$ROOT/bin/github-release-aarch64" "$ROOT/build/github-release-prepare.sh" |
   grep -Eiq 'setup_qemu|multiarch/qemu|binfmt'; then
@@ -497,5 +510,20 @@ if PATH="$stub_bin:$PATH" GH_TOKEN=test \
   exit 1
 fi
 grep -Fq "does not match 'rc'" "$work/channel-mismatch.out"
+
+: > "$GH_STUB_LOG"
+if PATH="$stub_bin:$PATH" GH_TOKEN=test \
+  "$ROOT/bin/publish-github-release" \
+    --repository example/repo --repo-dir "$repo" --tag aarch64-stable \
+    --channel edge >"$work/tag-mismatch.out" 2>&1; then
+  echo "Publisher accepted the stable tag for the edge channel" >&2
+  exit 1
+fi
+grep -Fq "does not match managed channel tag 'aarch64-edge'" \
+  "$work/tag-mismatch.out"
+[[ ! -s $GH_STUB_LOG ]] || {
+  echo "Publisher contacted GitHub before rejecting a cross-channel tag" >&2
+  exit 1
+}
 
 echo "PASS: native AArch64 GitHub Release adapter preserves scope and atomic publication"

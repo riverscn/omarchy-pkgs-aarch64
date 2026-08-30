@@ -76,6 +76,13 @@ Stable is the only formal/latest GitHub Release. Edge and rc are prereleases,
 so the existing `/releases/latest/download` stable client URL cannot
 accidentally switch channels.
 
+Both the adapter entry point and the low-level publisher require the target
+tag to equal `aarch64-<channel>`. A command, environment override, or stale
+baseline marker cannot direct an edge/rc manifest at `aarch64-stable`; the
+publisher also rechecks the manifest channel before its first upload. This
+makes stable client isolation a fail-closed invariant rather than a workflow
+input convention.
+
 The GitHub backend exposes the upstream transitions directly:
 
 ```sh
@@ -142,9 +149,11 @@ A successful local run retains two evidence sets in the workspace:
 - all `bin/repo` build/sign/promote logs.
 
 The audit records the package name, base, version, declared architecture,
-archive and signature SHA-256 hashes, expanded file and byte counts, AArch64
-ELF count, nested-container count, foreign-executable count, and maximum
-recursion depth for every archive produced in the run. The complete package
+archive and signature SHA-256 hashes, expanded file and byte counts, ELF and
+managed-PE counts, reviewed/unreviewed wrong-architecture ELF and foreign
+executable counts, nested-container count, and maximum recursion depth for
+every archive produced in the run. Package-local exact file/container policies
+are selected by package output, including split PKGBUILDs. The complete package
 repository remains on the local disk, so it can be inspected and reused
 without an upload/download cycle; every archive is still recursively opened,
 hashed, signature-checked, indexed, and consumed by pacman.
@@ -311,13 +320,23 @@ matched, the manifest/audit/database named the same 147 archives, and pacman
 resolved every scoped output independently.
 
 Those historical counts came from the earlier ELF-only auditor and therefore
-do not certify opaque nested containers or non-ELF executable formats. The new
-auditor was exercised through the normal native Docker build with Typora
-`1.14.9-1.1`: it recursively opened three ASAR files, accepted all 12 AArch64
-ELF files, and reported no foreign executable after the package-local cleanup.
-A subsequent zero-baseline run should be retained as the first recursive audit
-of the complete 118-base repository; until then, the earlier run remains valid
-for its stated ELF, signing, completeness, and dependency evidence only.
+do not certify opaque nested containers or non-ELF executable formats. The
+hardened auditor was exercised through the normal native Docker build with
+Typora, Cursor, Copilot CLI, T3 Code, VS Code, and all six outputs of the .NET
+split PKGBUILD. Every build passed without QEMU; only VS Code's documented,
+checksum-reviewed nested x64 seccomp helper and .NET's five output-scoped
+Windows tooling assets remained.
+
+The published stable snapshot was then downloaded read-only and verified
+against all 145 package checksums before an independent recursive audit. It
+expanded 287,417 files (21.8 GB) and 422 containers. 140 archives passed; the
+five historical Cursor, Copilot CLI, T3 Code, Typora, and VS Code revisions
+contained exactly the foreign payloads removed by the new recipes. No
+stable-only defect was found. A subsequent zero-baseline run should still be
+retained as the first recursive audit of a newly built complete 118-base
+repository; until then, the earlier run remains valid for its stated signing,
+completeness, and dependency evidence, while the stable audit remains evidence
+about its downloaded historical archives.
 
 The first audit also caught a generic output-discovery bug: a PKGBUILD that
 consumed an official `.pkg.tar.zst` source caused the source archive to be
