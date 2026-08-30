@@ -4,7 +4,8 @@ set -euo pipefail
 
 BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
 repository=${GITHUB_REPOSITORY:-riverscn/omarchy-pkgs-aarch64}
-repo_dir="$BUILD_ROOT/pkgs.omarchy.org/stable/aarch64"
+channel=${AARCH64_CHANNEL:-edge}
+repo_dir=""
 release_tag=${AARCH64_RELEASE_TAG:-}
 
 while [[ $# -gt 0 ]]; do
@@ -12,9 +13,24 @@ while [[ $# -gt 0 ]]; do
     --repository) repository=$2; shift 2 ;;
     --repo-dir) repo_dir=$(realpath "$2"); shift 2 ;;
     --tag) release_tag=$2; shift 2 ;;
-    *) echo "Usage: $0 [--repository owner/repo] [--repo-dir path] [--tag tag]" >&2; exit 1 ;;
+    --channel) channel=$2; shift 2 ;;
+    *) echo "Usage: $0 [--repository owner/repo] [--repo-dir path] [--tag tag] [--channel edge|rc|stable]" >&2; exit 1 ;;
   esac
 done
+
+case "$channel" in
+  edge|rc|stable) ;;
+  *) echo "ERROR: invalid channel: $channel" >&2; exit 1 ;;
+esac
+[[ $repository =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+  echo "ERROR: invalid GitHub repository: $repository" >&2
+  exit 1
+}
+[[ -z $release_tag || $release_tag =~ ^[A-Za-z0-9._-]+$ ]] || {
+  echo "ERROR: invalid Release tag: $release_tag" >&2
+  exit 1
+}
+repo_dir=${repo_dir:-"$BUILD_ROOT/pkgs.omarchy.org/$channel/aarch64"}
 
 command -v gh >/dev/null || { echo "ERROR: gh is required" >&2; exit 1; }
 command -v jq >/dev/null || { echo "ERROR: jq is required" >&2; exit 1; }
@@ -24,18 +40,32 @@ command -v jq >/dev/null || { echo "ERROR: jq is required" >&2; exit 1; }
 if [[ -z $release_tag && -s $repo_dir/.baseline-release-tag ]]; then
   release_tag=$(<"$repo_dir/.baseline-release-tag")
 fi
-if [[ -z $release_tag ]]; then
-  release_tag=$(gh release view --repo "$repository" --json tagName --jq .tagName 2>/dev/null || true)
-fi
-release_tag=${release_tag:-aarch64-stable}
+release_tag=${release_tag:-"aarch64-$channel"}
+
+manifest_channel=$(jq -r '.channel // ""' "$repo_dir/repository-manifest.json")
+[[ $manifest_channel == "$channel" ]] || {
+  echo "ERROR: repository manifest channel '$manifest_channel' does not match '$channel'" >&2
+  exit 1
+}
+
+release_title="Omarchy AArch64 $channel (rolling)"
+release_notes="Signed rolling AArch64 pacman repository for the $channel channel. Existing package assets are retained and only changed assets are uploaded."
 
 if ! gh release view "$release_tag" --repo "$repository" >/dev/null 2>&1; then
-  gh release create "$release_tag" \
+  create_args=(
+    "$release_tag"
     --repo "$repository" \
     --draft \
     --target "${GITHUB_SHA:-HEAD}" \
-    --title "Omarchy AArch64 stable (rolling)" \
-    --notes "Signed rolling AArch64 pacman repository. Existing package assets are retained and only changed assets are uploaded."
+    --title "$release_title" \
+    --notes "$release_notes"
+  )
+  if [[ $channel == stable ]]; then
+    create_args+=(--latest)
+  else
+    create_args+=(--prerelease --latest=false)
+  fi
+  gh release create "${create_args[@]}"
 fi
 
 release_id=""
@@ -184,9 +214,16 @@ for asset in omarchy.db.tar.zst.sig omarchy.db.tar.zst omarchy.db.sig omarchy.db
 done
 verify_uploaded_assets
 
-gh release edit "$release_tag" --repo "$repository" --draft=false --latest \
-  --title "Omarchy AArch64 stable (rolling)" \
-  --notes "Signed rolling AArch64 pacman repository. Existing package assets are retained and only changed assets are uploaded."
+edit_args=(
+  "$release_tag" --repo "$repository" --draft=false
+  --title "$release_title" --notes "$release_notes"
+)
+if [[ $channel == stable ]]; then
+  edit_args+=(--prerelease=false --latest)
+else
+  edit_args+=(--prerelease)
+fi
+gh release edit "${edit_args[@]}"
 
 # The database switch is complete. Remove assets that the managed rolling
 # Release no longer references. Other Releases in the repository are outside
@@ -199,4 +236,4 @@ for asset in "${current_assets[@]}"; do
   gh release delete-asset "$release_tag" "$asset" --repo "$repository" --yes
 done
 
-echo "Published rolling AArch64 repository in Release $release_tag."
+echo "Published rolling AArch64 $channel repository in Release $release_tag."
