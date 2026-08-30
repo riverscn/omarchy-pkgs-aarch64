@@ -4,26 +4,37 @@ pkgname=cursor-bin
 pkgver=3.17.21
 pkgrel=1
 pkgdesc='AI-first coding environment'
-arch=('x86_64')
+arch=('x86_64' 'aarch64')
 url="https://www.cursor.com"
 license=('LicenseRef-Cursor_EULA')
 # upstream uses Electron newer than internal VSCode
 _electron=electron40
-depends=(xdg-utils ripgrep $_electron nodejs
-  'gcc-libs' 'hicolor-icon-theme' 'libxkbfile')
+depends=(xdg-utils 'gcc-libs' 'hicolor-icon-theme' 'libxkbfile')
+depends_x86_64=(ripgrep $_electron nodejs)
+depends_aarch64=(
+  alsa-lib at-spi2-core cairo cups curl dbus expat glib2 gtk3 mesa nspr nss
+  pango systemd-libs libx11 libxcb libxcomposite libxdamage libxext libxfixes
+  libxkbcommon libxrandr
+)
 options=(!strip !debug) # Don't break ext of VSCode
 _commit=8f2a112cb2845a97b75fd932ea5c470579ca4063
-source=("https://downloads.cursor.com/production/${_commit}/linux/x64/deb/amd64/deb/cursor_${pkgver}_amd64.deb"
-"https://gitlab.archlinux.org/archlinux/packaging/packages/code/-/raw/main/code."{sh,mjs}
-rg.sh)
-sha512sums=('SKIP'
+source=(
+  "https://gitlab.archlinux.org/archlinux/packaging/packages/code/-/raw/main/code.sh"
+  "https://gitlab.archlinux.org/archlinux/packaging/packages/code/-/raw/main/code.mjs"
+  rg.sh
+)
+source_x86_64=("cursor_${pkgver}_amd64.deb::https://downloads.cursor.com/production/${_commit}/linux/x64/deb/amd64/deb/cursor_${pkgver}_amd64.deb")
+source_aarch64=("cursor_${pkgver}_arm64.deb::https://downloads.cursor.com/production/${_commit}/linux/arm64/deb/arm64/deb/cursor_${pkgver}_arm64.deb")
+sha512sums=(
   '937299c6cb6be2f8d25f7dbc95cf77423875c5f8353b8bd6cd7cc8e5603cbf8405b14dbf8bd615db2e3b36ed680fc8e1909410815f7f8587b7267a699e00ab37'
   '793f9ff6306e3992ac89802d98110cba288ea1181a901467333293b7d76182ef9792c2a39ff49d9347a18a174b1f42bc58862091dff583f4146c2704eea28033'
   'e79fe7659f59d1ae02fc68816399bfd31587315df6cdb6ccf1d0ca76f7cdc692c2a42b30591c0091147bd97ef14b1c7745dc26bd7cb3ea6bba45698e5044fa2a')
-sha512sums[0]=a4b208c89930ed5e60a68f4060ddb8a0b70878707f0d2f1c3069529b97d619d3f75480f758a9ab5ca02b7d18d5d427bac229c876d7d93bbbcb90c54de92af049
-noextract=(cursor_${pkgver}_amd64.deb) # avoid double tarball
+sha512sums_x86_64=(a4b208c89930ed5e60a68f4060ddb8a0b70878707f0d2f1c3069529b97d619d3f75480f758a9ab5ca02b7d18d5d427bac229c876d7d93bbbcb90c54de92af049)
+sha512sums_aarch64=('78e6614d2727ddff9709229312e60ef2d73977971d81f222fcd128d45d9bb97d3c8ca650e23a68abd5112410cd9b1265dc7bfa328a2df7a22e9a1ffc365a5e0b')
+_deb_arch=$([[ $CARCH == aarch64 ]] && echo arm64 || echo amd64)
+noextract=(cursor_${pkgver}_${_deb_arch}.deb)
 _app=usr/share/cursor/resources/app
-package() {
+_package_system_electron() {
   # Exclude electron
   bsdtar -xOf ${noextract[0]} data.tar.xz | tar -xJf - -C "$pkgdir" \
     --exclude 'usr/share/cursor/[^r]*' --exclude 'usr/share/cursor/*.pak'
@@ -39,4 +50,18 @@ package() {
     -e "s|name=electron|name=${_electron}|" "${srcdir}"/code.sh | install -Dm755 /dev/stdin "${pkgdir}"/usr/share/cursor/cursor
   install -d "$pkgdir"/usr/bin
   ln -sf /usr/share/cursor/cursor "$pkgdir"/usr/bin/cursor
+}
+
+package() {
+  if [[ $CARCH != aarch64 ]]; then
+    _package_system_electron
+    return
+  fi
+
+  bsdtar -xOf "${noextract[0]}" data.tar.xz | tar -xJf - -C "$pkgdir"
+  cd "$pkgdir"
+  mv usr/share/zsh/{vendor-completions,site-functions}
+  chmod u-s usr/share/cursor/chrome-sandbox
+  install -d usr/bin
+  ln -sf /usr/share/cursor/cursor usr/bin/cursor
 }
