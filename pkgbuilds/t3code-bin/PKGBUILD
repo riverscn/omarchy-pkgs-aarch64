@@ -5,8 +5,8 @@
 # same tagged source and then applies the identical AppImage packaging policy.
 
 pkgname=t3code-bin
-pkgver=0.0.35
-pkgrel=2
+pkgver=0.0.36
+pkgrel=1
 pkgdesc="Open-source control plane for coding agents"
 arch=('x86_64' 'aarch64')
 url="https://t3.codes"
@@ -71,8 +71,8 @@ noextract=("${_appimage}")
 sha256sums=('cb905ff341372ef2ef6e402cf485959f8bd1df8f0efebee4cda1afdd5e6abc0a'
             'c5b3f2a9f0b14b12cfd973b79319f0f018b7ae49a1d43d8ca346100c3f7de28f'
             '935d8f2af0c703f9c39517ee57cc4930b19d02d533be930b63f0e82f93614b43')
-sha256sums_x86_64=('97564d89bdb2d1b45f2fb1916183f39d4a384349dec788d5fb6fb2c643ae0794')
-sha256sums_aarch64=('40cda9960b8373f9dd32303b792744ee25a0514450a23031a8d9ea2556ea9655')
+sha256sums_x86_64=('f19c36ce903331f8d5906f2f90e6fbaae576fde53ab37e1eeb201f3c50c9acf1')
+sha256sums_aarch64=('4eb1afa3dbd1918d9595920a6fdb6bf9c739bd641e028746c6154782120a0417')
 
 prepare() {
   if [[ $CARCH == x86_64 ]]; then

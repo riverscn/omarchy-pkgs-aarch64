@@ -1,0 +1,21 @@
+# shellcheck shell=bash
+
+post_install() {
+  if ! /usr/lib/spice-guest-tools/activate-active-users activate; then
+    printf '%s\n' \
+      'Warning: SPICE guest integration could not activate the current session.' \
+      'Run spice-guest-tools doctor for diagnostics.' >&2
+  fi
+}
+
+post_upgrade() {
+  if ! /usr/lib/spice-guest-tools/activate-active-users upgrade; then
+    printf '%s\n' \
+      'Warning: SPICE guest integration could not refresh the current session.' \
+      'Run spice-guest-tools doctor for diagnostics.' >&2
+  fi
+}
+
+pre_remove() {
+  /usr/lib/spice-guest-tools/activate-active-users stop || true
+}
