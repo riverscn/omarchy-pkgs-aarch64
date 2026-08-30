@@ -93,6 +93,7 @@ mapfile -t package_bases < <(
 declare -A expected_names=()
 declare -A expected_bases=()
 declare -A expected_outputs=()
+declare -A expected_base_dirs=()
 for package_base in "${package_bases[@]}"; do
   package_dir="$pkgbuilds/$package_base"
   [[ -f $package_dir/PKGBUILD ]] || {
@@ -117,7 +118,12 @@ for package_base in "${package_bases[@]}"; do
     echo "ERROR: scoped package metadata has no pkgbase: $package_base" >&2
     exit 1
   }
+  [[ -z ${expected_base_dirs[$metadata_base]:-} ]] || {
+    echo "ERROR: duplicate scoped package base: $metadata_base" >&2
+    exit 1
+  }
   expected_bases["$metadata_base"]=1
+  expected_base_dirs["$metadata_base"]=$package_dir
   while IFS= read -r package_name; do
     if [[ -n $package_name ]]; then
       expected_names["$package_name"]=1
@@ -168,9 +174,12 @@ package_info_value() {
 
 audit_package_archive() {
   local package=$1 info package_name package_base package_version package_arch
-  local package_hash signature_hash architecture_evidence
-  local file_count elf_count expanded_bytes nested_archive_count
-  local foreign_executable_count max_depth_seen
+  local package_hash signature_hash architecture_evidence package_dir
+  local generic_allowlist output_allowlist
+  local file_count elf_count non_target_elf_count expanded_bytes managed_pe_count
+  local reviewed_non_target_elf_count nested_archive_count
+  local foreign_executable_count reviewed_foreign_executable_count max_depth_seen
+  local -a audit_args=(--arch aarch64 --reject-foreign --json)
 
   info=$(bsdtar -xOf "$package" .PKGINFO) || {
     echo "ERROR: package archive lacks readable .PKGINFO: ${package##*/}" >&2
@@ -205,9 +214,20 @@ audit_package_archive() {
     return 1
   fi
 
+  package_dir=${expected_base_dirs[$package_base]}
+  generic_allowlist=$package_dir/.omarchy/aarch64-audit-allowlist
+  output_allowlist=$generic_allowlist.$package_name
+  if [[ -f $generic_allowlist && -f $output_allowlist ]]; then
+    echo "ERROR: ambiguous architecture audit allowlists for $package_base/$package_name" >&2
+    return 1
+  elif [[ -f $output_allowlist ]]; then
+    audit_args+=(--allowlist "$output_allowlist")
+  elif [[ -f $generic_allowlist ]]; then
+    audit_args+=(--allowlist "$generic_allowlist")
+  fi
+
   architecture_evidence=$(
-    /build/audit-package-architecture.sh --arch aarch64 --reject-foreign \
-      --json "$package"
+    /build/audit-package-architecture.sh "${audit_args[@]}" "$package"
   ) || {
     echo "ERROR: recursive architecture audit failed: ${package##*/}" >&2
     return 1
@@ -220,8 +240,12 @@ audit_package_archive() {
   file_count=$(jq -r '.file_count' <<< "$architecture_evidence")
   expanded_bytes=$(jq -r '.expanded_bytes' <<< "$architecture_evidence")
   elf_count=$(jq -r '.elf_count' <<< "$architecture_evidence")
+  non_target_elf_count=$(jq -r '.non_target_elf_count' <<< "$architecture_evidence")
+  reviewed_non_target_elf_count=$(jq -r '.reviewed_non_target_elf_count' <<< "$architecture_evidence")
+  managed_pe_count=$(jq -r '.managed_pe_count' <<< "$architecture_evidence")
   nested_archive_count=$(jq -r '.nested_archive_count' <<< "$architecture_evidence")
   foreign_executable_count=$(jq -r '.foreign_executable_count' <<< "$architecture_evidence")
+  reviewed_foreign_executable_count=$(jq -r '.reviewed_foreign_executable_count' <<< "$architecture_evidence")
   max_depth_seen=$(jq -r '.max_depth_seen' <<< "$architecture_evidence")
 
   package_hash=$(sha256sum "$package" | awk '{ print $1 }') || return 1
@@ -237,16 +261,24 @@ audit_package_archive() {
     --argjson file_count "$file_count" \
     --argjson expanded_bytes "$expanded_bytes" \
     --argjson elf_count "$elf_count" \
+    --argjson non_target_elf_count "$non_target_elf_count" \
+    --argjson reviewed_non_target_elf_count "$reviewed_non_target_elf_count" \
+    --argjson managed_pe_count "$managed_pe_count" \
     --argjson nested_archive_count "$nested_archive_count" \
     --argjson foreign_executable_count "$foreign_executable_count" \
+    --argjson reviewed_foreign_executable_count "$reviewed_foreign_executable_count" \
     --argjson max_depth_seen "$max_depth_seen" \
     '{filename: $filename, package_name: $package_name,
       package_base: $package_base, version: $version,
       package_architecture: $package_architecture, sha256: $sha256,
       signature_sha256: $signature_sha256, file_count: $file_count,
       expanded_bytes: $expanded_bytes, elf_count: $elf_count,
+      non_target_elf_count: $non_target_elf_count,
+      reviewed_non_target_elf_count: $reviewed_non_target_elf_count,
+      managed_pe_count: $managed_pe_count,
       nested_archive_count: $nested_archive_count,
       foreign_executable_count: $foreign_executable_count,
+      reviewed_foreign_executable_count: $reviewed_foreign_executable_count,
       max_depth_seen: $max_depth_seen}' >> "$audit_rows" || return 1
 }
 
