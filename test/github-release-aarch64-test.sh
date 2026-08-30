@@ -313,9 +313,18 @@ grep -Fq 'source PKGBUILD' <<< "$advance_metadata_function" || {
 for invariant in \
   'full validation must not configure a remote package fallback' \
   'full validation attempted to use a non-local archive' \
-  'non-AArch64 ELF'; do
-  grep -Fq "$invariant" "$ROOT/build/github-release-prepare.sh" || {
+  '/build/audit-package-architecture.sh --arch aarch64' \
+  '--reject-foreign'; do
+  grep -Fq -- "$invariant" "$ROOT/build/github-release-prepare.sh" || {
     echo "Repository preparation lost full-rebuild invariant: $invariant" >&2
+    exit 1
+  }
+done
+for evidence_field in expanded_bytes nested_archive_count \
+  foreign_executable_count max_depth_seen; do
+  grep -Fq -- "--argjson $evidence_field" \
+    "$ROOT/build/github-release-prepare.sh" || {
+    echo "Repository audit omits recursive evidence: $evidence_field" >&2
     exit 1
   }
 done

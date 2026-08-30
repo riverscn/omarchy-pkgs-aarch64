@@ -63,9 +63,8 @@ esac
 key_home=$(mktemp -d)
 srcinfo_work=$(mktemp -d)
 new_sums=$(mktemp)
-archive_work=$(mktemp -d)
 audit_rows=$(mktemp)
-trap 'rm -rf "$key_home" "$srcinfo_work" "$new_sums" "$archive_work" "$audit_rows"' EXIT
+trap 'rm -rf "$key_home" "$srcinfo_work" "$new_sums" "$audit_rows"' EXIT
 chmod 700 "$key_home"
 chown builder:builder "$srcinfo_work"
 
@@ -169,8 +168,9 @@ package_info_value() {
 
 audit_package_archive() {
   local package=$1 info package_name package_base package_version package_arch
-  local package_hash signature_hash scan_dir candidate machine relative_path
-  local file_count=0 elf_count=0
+  local package_hash signature_hash architecture_evidence
+  local file_count elf_count expanded_bytes nested_archive_count
+  local foreign_executable_count max_depth_seen
 
   info=$(bsdtar -xOf "$package" .PKGINFO) || {
     echo "ERROR: package archive lacks readable .PKGINFO: ${package##*/}" >&2
@@ -205,26 +205,24 @@ audit_package_archive() {
     return 1
   fi
 
-  scan_dir=$archive_work/scan
-  rm -rf "$scan_dir"
-  mkdir -p "$scan_dir"
-  bsdtar -xf "$package" -C "$scan_dir" || {
-    echo "ERROR: cannot extract package archive: ${package##*/}" >&2
+  architecture_evidence=$(
+    /build/audit-package-architecture.sh --arch aarch64 --reject-foreign \
+      --json "$package"
+  ) || {
+    echo "ERROR: recursive architecture audit failed: ${package##*/}" >&2
     return 1
   }
-  while IFS= read -r -d '' candidate; do
-    ((file_count += 1))
-    if file -b -- "$candidate" | grep -q '^ELF '; then
-      ((elf_count += 1))
-      machine=$(readelf -h -- "$candidate" |
-        sed -n 's/^[[:space:]]*Machine:[[:space:]]*//p')
-      relative_path=${candidate#"$scan_dir"/}
-      [[ $machine == AArch64 ]] || {
-        echo "ERROR: non-AArch64 ELF in ${package##*/}: $relative_path (${machine:-unknown})" >&2
-        return 1
-      }
-    fi
-  done < <(find "$scan_dir" -type f -print0)
+  jq -e '.target_architecture == "aarch64" and .errors == 0' \
+    <<< "$architecture_evidence" >/dev/null || {
+    echo "ERROR: invalid architecture evidence: ${package##*/}" >&2
+    return 1
+  }
+  file_count=$(jq -r '.file_count' <<< "$architecture_evidence")
+  expanded_bytes=$(jq -r '.expanded_bytes' <<< "$architecture_evidence")
+  elf_count=$(jq -r '.elf_count' <<< "$architecture_evidence")
+  nested_archive_count=$(jq -r '.nested_archive_count' <<< "$architecture_evidence")
+  foreign_executable_count=$(jq -r '.foreign_executable_count' <<< "$architecture_evidence")
+  max_depth_seen=$(jq -r '.max_depth_seen' <<< "$architecture_evidence")
 
   package_hash=$(sha256sum "$package" | awk '{ print $1 }') || return 1
   signature_hash=$(sha256sum "$package.sig" | awk '{ print $1 }') || return 1
@@ -237,12 +235,19 @@ audit_package_archive() {
     --arg sha256 "$package_hash" \
     --arg signature_sha256 "$signature_hash" \
     --argjson file_count "$file_count" \
+    --argjson expanded_bytes "$expanded_bytes" \
     --argjson elf_count "$elf_count" \
+    --argjson nested_archive_count "$nested_archive_count" \
+    --argjson foreign_executable_count "$foreign_executable_count" \
+    --argjson max_depth_seen "$max_depth_seen" \
     '{filename: $filename, package_name: $package_name,
       package_base: $package_base, version: $version,
       package_architecture: $package_architecture, sha256: $sha256,
       signature_sha256: $signature_sha256, file_count: $file_count,
-      elf_count: $elf_count}' >> "$audit_rows" || return 1
+      expanded_bytes: $expanded_bytes, elf_count: $elf_count,
+      nested_archive_count: $nested_archive_count,
+      foreign_executable_count: $foreign_executable_count,
+      max_depth_seen: $max_depth_seen}' >> "$audit_rows" || return 1
 }
 
 audit_failures=0

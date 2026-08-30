@@ -120,8 +120,10 @@ but is not required for acceptance:
    detached signature, to exist in the current local build result.
 4. Every package signature is verified. Each archive's `.PKGINFO` must name a
    scoped package and package base and report `arch = aarch64` or `arch = any`.
-   The archive is then unpacked and every ELF file is inspected with `readelf`;
-   any machine type other than AArch64 fails the run.
+   The same generic package auditor used by the native builder then recursively
+   opens Electron ASAR and libarchive-supported containers. Every ELF machine
+   must be AArch64, while Mach-O, PE, and DOS executables fail until a
+   package-local recipe has reviewed and removed them.
 5. The newly signed repository is synchronized with pacman, then a complete
    dependency transaction is resolved for every scoped output using only the
    local repository plus the normal Arch Linux ARM repositories. Outputs are
@@ -140,11 +142,12 @@ A successful local run retains two evidence sets in the workspace:
 - all `bin/repo` build/sign/promote logs.
 
 The audit records the package name, base, version, declared architecture,
-archive and signature SHA-256 hashes, regular-file count, and AArch64 ELF count
-for every archive produced in the run. The complete package repository remains
-on the local disk, so it can be inspected and reused without an upload/download
-cycle; every archive is still opened, hashed, signature-checked, indexed, and
-consumed by pacman.
+archive and signature SHA-256 hashes, expanded file and byte counts, AArch64
+ELF count, nested-container count, foreign-executable count, and maximum
+recursion depth for every archive produced in the run. The complete package
+repository remains on the local disk, so it can be inspected and reused
+without an upload/download cycle; every archive is still recursively opened,
+hashed, signature-checked, indexed, and consumed by pacman.
 
 This validation proves package construction, target architecture, signing,
 repository completeness, and dependency solvability. It does not prove that
@@ -306,6 +309,15 @@ zero-baseline run: 118 package bases produced 147 archives (113 `aarch64` and
 all package and repository signatures verified, all 305 `SHA256SUMS` entries
 matched, the manifest/audit/database named the same 147 archives, and pacman
 resolved every scoped output independently.
+
+Those historical counts came from the earlier ELF-only auditor and therefore
+do not certify opaque nested containers or non-ELF executable formats. The new
+auditor was exercised through the normal native Docker build with Typora
+`1.14.9-1.1`: it recursively opened three ASAR files, accepted all 12 AArch64
+ELF files, and reported no foreign executable after the package-local cleanup.
+A subsequent zero-baseline run should be retained as the first recursive audit
+of the complete 118-base repository; until then, the earlier run remains valid
+for its stated ELF, signing, completeness, and dependency evidence only.
 
 The first audit also caught a generic output-discovery bug: a PKGBUILD that
 consumed an official `.pkg.tar.zst` source caused the source archive to be
