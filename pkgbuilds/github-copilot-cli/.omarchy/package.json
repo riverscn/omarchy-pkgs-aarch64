@@ -1,5 +1,8 @@
 {
   "source": "aur",
   "release_ring": "fast",
+  "pkgrel": {
+    "suffix": 2
+  },
   "upstream_commit": "d62d258cc4b568fddb926eac7cc3e348751868c2"
 }
