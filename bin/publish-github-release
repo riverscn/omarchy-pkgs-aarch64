@@ -1,0 +1,202 @@
+#!/bin/bash
+
+set -euo pipefail
+
+BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
+repository=${GITHUB_REPOSITORY:-riverscn/omarchy-pkgs-aarch64}
+repo_dir="$BUILD_ROOT/pkgs.omarchy.org/stable/aarch64"
+release_tag=${AARCH64_RELEASE_TAG:-}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repository) repository=$2; shift 2 ;;
+    --repo-dir) repo_dir=$(realpath "$2"); shift 2 ;;
+    --tag) release_tag=$2; shift 2 ;;
+    *) echo "Usage: $0 [--repository owner/repo] [--repo-dir path] [--tag tag]" >&2; exit 1 ;;
+  esac
+done
+
+command -v gh >/dev/null || { echo "ERROR: gh is required" >&2; exit 1; }
+command -v jq >/dev/null || { echo "ERROR: jq is required" >&2; exit 1; }
+[[ -f $repo_dir/SHA256SUMS ]] || { echo "ERROR: prepared SHA256SUMS is missing" >&2; exit 1; }
+: "${GH_TOKEN:?GH_TOKEN is required}"
+
+if [[ -z $release_tag && -s $repo_dir/.baseline-release-tag ]]; then
+  release_tag=$(<"$repo_dir/.baseline-release-tag")
+fi
+if [[ -z $release_tag ]]; then
+  release_tag=$(gh release view --repo "$repository" --json tagName --jq .tagName 2>/dev/null || true)
+fi
+release_tag=${release_tag:-aarch64-stable}
+
+if ! gh release view "$release_tag" --repo "$repository" >/dev/null 2>&1; then
+  gh release create "$release_tag" \
+    --repo "$repository" \
+    --draft \
+    --target "${GITHUB_SHA:-HEAD}" \
+    --title "Omarchy AArch64 stable (rolling)" \
+    --notes "Signed rolling AArch64 pacman repository. Existing package assets are retained and only changed assets are uploaded."
+fi
+
+release_id=""
+for attempt in 1 2 3 4 5; do
+  release_id=$(gh release view "$release_tag" --repo "$repository" --json databaseId --jq .databaseId 2>/dev/null || true)
+  [[ $release_id =~ ^[0-9]+$ ]] && break
+  sleep 2
+done
+[[ $release_id =~ ^[0-9]+$ ]] || {
+  echo "ERROR: cannot resolve numeric Release ID for $release_tag" >&2
+  exit 1
+}
+
+release_assets_json=$(mktemp)
+trap 'rm -f "$release_assets_json"' EXIT
+refresh_release_assets() {
+  gh api --paginate --slurp \
+    "repos/$repository/releases/$release_id/assets?per_page=100" > "$release_assets_json"
+}
+
+old_sums="$repo_dir/.baseline-SHA256SUMS"
+declare -A desired_hash=()
+declare -A existing_asset=()
+uploaded_assets=()
+
+while read -r hash asset; do
+  asset=${asset#\*}
+  [[ $hash =~ ^[0-9a-f]{64}$ && -n $asset ]] || continue
+  desired_hash["$asset"]=$hash
+done < "$repo_dir/SHA256SUMS"
+desired_hash[SHA256SUMS]=$(sha256sum "$repo_dir/SHA256SUMS" | awk '{ print $1 }')
+
+refresh_release_assets
+while IFS= read -r asset; do
+  [[ -n $asset ]] && existing_asset["$asset"]=1
+done < <(jq -r '.[][] | .name' "$release_assets_json")
+
+old_hash_for() {
+  local asset="$1"
+  [[ -f $old_sums ]] || return 0
+  awk -v wanted="$asset" '{ name=$2; sub(/^\*/, "", name); if (name == wanted) { print $1; exit } }' "$old_sums"
+}
+
+upload_if_needed() {
+  local asset="$1"
+  local path="$repo_dir/$asset"
+  local previous_hash live_digest
+
+  if [[ -n ${existing_asset[$asset]:-} ]]; then
+    live_digest=$(jq -r --arg name "$asset" \
+      '.[][] | select(.name == $name) | .digest // ""' "$release_assets_json")
+    if [[ $live_digest == "sha256:${desired_hash[$asset]}" ]]; then
+      echo "Keeping already uploaded Release asset: $asset"
+      return 0
+    fi
+
+    previous_hash=$(old_hash_for "$asset")
+    if [[ -n $previous_hash && $previous_hash == "${desired_hash[$asset]}" ]]; then
+      echo "Keeping unchanged Release asset: $asset"
+      return 0
+    fi
+  fi
+
+  [[ -f $path ]] || {
+    echo "ERROR: changed or missing Release asset is not available locally: $asset" >&2
+    exit 1
+  }
+  echo "Uploading changed Release asset: $asset"
+  gh release upload "$release_tag" --repo "$repository" --clobber "$path"
+  existing_asset["$asset"]=1
+  uploaded_assets+=("$asset")
+}
+
+verify_uploaded_assets() {
+  (( ${#uploaded_assets[@]} > 0 )) || return 0
+
+  local asset expected digest asset_id download_dir attempt
+  local -a pending=("${uploaded_assets[@]}")
+  local -a still_pending=()
+  download_dir=$(mktemp -d)
+
+  # A newly uploaded asset can take a few seconds to appear consistently in
+  # all Release API views. Prefer GitHub's own digest and allow the complete
+  # batch to converge with one API request per retry, not per asset.
+  for attempt in 1 2 3 4 5; do
+    refresh_release_assets
+    still_pending=()
+    for asset in "${pending[@]}"; do
+      expected=${desired_hash[$asset]}
+      digest=$(jq -r --arg name "$asset" \
+        '.[][] | select(.name == $name) | .digest // ""' "$release_assets_json")
+      [[ $digest == "sha256:$expected" ]] || still_pending+=("$asset")
+    done
+    pending=("${still_pending[@]}")
+    (( ${#pending[@]} == 0 )) && break
+    (( attempt < 5 )) && sleep 2
+  done
+
+  for asset in "${pending[@]}"; do
+    expected=${desired_hash[$asset]}
+    # Older GitHub assets may not expose a digest. Download only the assets
+    # changed in this run; unchanged packages are trusted through the previous
+    # signed manifest and are never transferred again. Use the immutable asset
+    # ID instead of a name pattern so API-listing convergence cannot make an
+    # otherwise successful upload look absent.
+    asset_id=$(jq -r --arg name "$asset" \
+      '.[][] | select(.name == $name) | .id // ""' "$release_assets_json")
+    [[ $asset_id =~ ^[0-9]+$ ]] || {
+      echo "ERROR: uploaded Release asset is not visible after retries: $asset" >&2
+      exit 1
+    }
+    gh api -H 'Accept: application/octet-stream' \
+      "repos/$repository/releases/assets/$asset_id" > "$download_dir/$asset"
+    [[ $(sha256sum "$download_dir/$asset" | awk '{ print $1 }') == "$expected" ]] || {
+      echo "ERROR: uploaded asset checksum mismatch: $asset" >&2
+      exit 1
+    }
+  done
+  rm -rf "$download_dir"
+}
+
+# Publish immutable, versioned package archives first. The currently visible
+# database therefore never points at an asset that has not finished uploading.
+for asset in "${!desired_hash[@]}"; do
+  [[ $asset == *.pkg.tar.zst || $asset == *.pkg.tar.zst.sig ]] || continue
+  upload_if_needed "$asset"
+done
+verify_uploaded_assets
+uploaded_assets=()
+
+# Supporting metadata and the files index are not on pacman's critical switch
+# path. Upload them before the database aliases.
+for asset in \
+  omarchy-aarch64.gpg repository-build-audit.json repository-manifest.json SHA256SUMS \
+  omarchy.files.tar.zst.sig omarchy.files.tar.zst omarchy.files.sig omarchy.files; do
+  upload_if_needed "$asset"
+done
+verify_uploaded_assets
+uploaded_assets=()
+
+# Detached signatures go first and their matching database goes immediately
+# after. A client racing the two replacements fails closed and succeeds on its
+# next refresh; it can never install an unsigned or missing package.
+for asset in omarchy.db.tar.zst.sig omarchy.db.tar.zst omarchy.db.sig omarchy.db; do
+  upload_if_needed "$asset"
+done
+verify_uploaded_assets
+
+gh release edit "$release_tag" --repo "$repository" --draft=false --latest \
+  --title "Omarchy AArch64 stable (rolling)" \
+  --notes "Signed rolling AArch64 pacman repository. Existing package assets are retained and only changed assets are uploaded."
+
+# The database switch is complete. Remove assets that the managed rolling
+# Release no longer references. Other Releases in the repository are outside
+# this adapter's ownership and are deliberately left untouched.
+refresh_release_assets
+mapfile -t current_assets < <(jq -r '.[][] | .name' "$release_assets_json")
+for asset in "${current_assets[@]}"; do
+  [[ -n ${desired_hash[$asset]:-} ]] && continue
+  echo "Deleting unreferenced Release asset: $asset"
+  gh release delete-asset "$release_tag" "$asset" --repo "$repository" --yes
+done
+
+echo "Published rolling AArch64 repository in Release $release_tag."
