@@ -4,6 +4,9 @@ Build system for the Omarchy Package Repository. Builds PKGBUILDs from local sou
 
 **Multi-Architecture**: Supports both x86_64 and aarch64 (ARM64).
 
+The fork's native AArch64 GitHub Actions release adapter is documented in
+[`docs/aarch64-github-release-adapter.md`](docs/aarch64-github-release-adapter.md).
+
 ## PKGBUILDs
 
 Each package lives directly under `pkgbuilds/<package>/` and carries Omarchy metadata in `.omarchy/package.json`.
