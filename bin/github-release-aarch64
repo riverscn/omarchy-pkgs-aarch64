@@ -368,6 +368,7 @@ prepare_repository() {
     -v "$BUILD_ROOT/pkgbuilds:/pkgbuilds:ro" \
     -v "$BUILD_ROOT/pkgbuilds/omarchy-aarch64-keyring:/public:ro" \
     -v "$BUILD_ROOT/build:/build:ro" \
+    -v "$BUILD_ROOT/helpers:/helpers:ro" \
     "omarchy-pkg-builder:latest-$ARCH-$MIRROR" /build/github-release-prepare.sh
 }
 
