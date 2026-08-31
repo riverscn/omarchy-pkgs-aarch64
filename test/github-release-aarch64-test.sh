@@ -370,6 +370,11 @@ grep -Fq 'source "$BUILD_ROOT/helpers/message-helpers.sh"' \
   echo "GitHub Release adapter does not load Docker helper logging functions" >&2
   exit 1
 }
+grep -Fq -- '-v "$BUILD_ROOT/helpers:/helpers:ro"' \
+  "$ROOT/bin/github-release-aarch64" || {
+  echo "Repository audit container cannot extract nested ASAR payloads" >&2
+  exit 1
+}
 
 # GitHub rewrites ':' in Release asset names. Normalize epoch filenames before
 # repo-add records them, without altering the signed package bytes.
