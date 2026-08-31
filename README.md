@@ -447,7 +447,11 @@ bin/package-worktree v4l2-relayd     # Create upstream/patched/current scratch w
 ## Cutting an Omarchy Release
 
 The `omarchy` and `omarchy-settings` packages are released as a pair, always
-built from the same upstream commit of basecamp/omarchy.
+built from the same reviewed source commit. The upstream repository uses
+`basecamp/omarchy`; the AArch64 release adapter pins the corresponding adapted
+commit from `riverscn/omarchy-aarch64`. Its edge-only development pair follows
+that fork's `aarch64-quattro` branch so changing channels cannot replace the
+AArch64 runtime with an unadapted checkout.
 
 **Use `bin/omarchy-release`** (see [Cutting an Omarchy release](#cutting-an-omarchy-release)
 in Quick Start) — it drives the whole train across all four repositories and

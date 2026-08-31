@@ -148,15 +148,20 @@ EOF
 
 [omarchy]
 SigLevel = Optional TrustAll
-Server = file://$FINAL_OUTPUT_DIR
 EOF
     if [[ -n "${OMARCHY_REPOSITORY_SERVER:-}" ]]; then
       [[ "$OMARCHY_REPOSITORY_SERVER" != *$'\n'* ]] || {
         echo "==> ERROR: OMARCHY_REPOSITORY_SERVER must be a single line"
         exit 1
       }
+      # Sparse storage adapters keep the signed database locally but may omit
+      # unchanged archives. Prefer their complete remote package store: after
+      # several missing file:// archives, libalpm disables that downloader for
+      # the transaction and can no longer consume the complete omarchy-build
+      # repository either.
       echo "Server = $OMARCHY_REPOSITORY_SERVER" | sudo tee -a /etc/pacman.conf >/dev/null
     fi
+    echo "Server = file://$FINAL_OUTPUT_DIR" | sudo tee -a /etc/pacman.conf >/dev/null
     echo "  -> omarchy (priority 2): $FINAL_OUTPUT_DIR"
   fi
 
@@ -549,7 +554,12 @@ build_package() {
       return 1
     fi
     ln -sf omarchy-build.db.tar.zst omarchy-build.db
-    sudo pacman -Sy >/dev/null 2>&1
+    if ! sudo pacman -Sy >/dev/null; then
+      echo "    Failed to synchronize the updated local build repository"
+      FAILED_PACKAGES="$FAILED_PACKAGES $pkg"
+      cd "/src/$pkg" || return 1
+      return 1
+    fi
 
     cd /src/$pkg
 

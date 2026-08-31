@@ -36,17 +36,31 @@ assert_scope_count scope edge 118
 assert_scope_count scope rc 116
 assert_scope_count scope stable 116
 assert_scope_count build-scope edge 118
-assert_scope_count build-scope rc 40
-assert_scope_count build-scope stable 40
-rc_pinned_count=$(OMARCHY_RC_PINS=1 "$ROOT/bin/github-release-aarch64" \
-  build-scope --channel rc | sed '1d' | wc -l)
-[[ $rc_pinned_count -eq 42 ]] || {
-  echo "Expected the 40 fast-ring bases plus 2 pinned RC bases; found $rc_pinned_count" >&2
-  exit 1
-}
 edge_scope_output=$("$ROOT/bin/github-release-aarch64" scope --channel edge)
 rc_scope_output=$("$ROOT/bin/github-release-aarch64" scope --channel rc)
 stable_scope_output=$("$ROOT/bin/github-release-aarch64" scope --channel stable)
+edge_build_output=$("$ROOT/bin/github-release-aarch64" build-scope --channel edge)
+rc_build_output=$("$ROOT/bin/github-release-aarch64" build-scope --channel rc)
+stable_build_output=$("$ROOT/bin/github-release-aarch64" build-scope --channel stable)
+rc_pinned_output=$(OMARCHY_RC_PINS=1 "$ROOT/bin/github-release-aarch64" \
+  build-scope --channel rc)
+
+diff -u <(sed '1d' <<< "$edge_scope_output" | sort) \
+  <(sed '1d' <<< "$edge_build_output" | sort) || {
+  echo "Edge build scope no longer matches the complete edge repository scope" >&2
+  exit 1
+}
+diff -u <(sed '1d' <<< "$stable_build_output" | sort) \
+  <(sed '1d' <<< "$rc_build_output" | sort) || {
+  echo "RC and stable no longer derive the same fast-ring build scope" >&2
+  exit 1
+}
+diff -u \
+  <({ sed '1d' <<< "$stable_build_output"; printf '%s\n' omarchy omarchy-settings; } | sort -u) \
+  <(sed '1d' <<< "$rc_pinned_output" | sort -u) || {
+  echo "The RC branch build is not exactly the fast ring plus its two pinned packages" >&2
+  exit 1
+}
 for development_package in omarchy-dev omarchy-settings-dev; do
   grep -Fxq "$development_package" <<< "$edge_scope_output"
   if grep -Fxq "$development_package" <<< "$rc_scope_output"; then
@@ -363,6 +377,15 @@ grep -Fq 'OMARCHY_REPOSITORY_KEY_FINGERPRINT="$(expected_fingerprint)"' \
 }
 grep -Fq 'OMARCHY_REPOSITORY_SERVER' "$ROOT/build/build.sh" || {
   echo "Builder container does not configure the remote package fallback" >&2
+  exit 1
+}
+remote_fallback_line=$(grep -nF 'echo "Server = $OMARCHY_REPOSITORY_SERVER"' \
+  "$ROOT/build/build.sh" | cut -d: -f1)
+local_repository_line=$(grep -nF 'echo "Server = file://$FINAL_OUTPUT_DIR"' \
+  "$ROOT/build/build.sh" | cut -d: -f1)
+[[ -n $remote_fallback_line && -n $local_repository_line &&
+   $remote_fallback_line -lt $local_repository_line ]] || {
+  echo "Sparse GitHub storage fallback must precede the incomplete local archive store" >&2
   exit 1
 }
 grep -Fq 'source "$BUILD_ROOT/helpers/message-helpers.sh"' \
