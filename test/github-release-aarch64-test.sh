@@ -72,6 +72,24 @@ for development_package in omarchy-dev omarchy-settings-dev; do
     exit 1
   fi
 done
+
+# Both runtime settings packages must preserve upstream's staging boundary for
+# configuration files owned by Arch packages. Owning cups-files.conf directly
+# makes pacman reject omarchy as soon as current cups is installed in the clean
+# builder (and would create the same conflict on user systems).
+for settings_package in omarchy-settings omarchy-settings-dev; do
+  settings_recipe="$ROOT/pkgbuilds/$settings_package/PKGBUILD"
+  sed -n '/^_etc_override_paths=(/,/^)/p' "$settings_recipe" |
+    grep -Fxq "  'etc/cups/cups-files.conf'" || {
+      echo "$settings_package no longer stages cups-files.conf as an upstream-owned override" >&2
+      exit 1
+    }
+  grep -Fq 'mv "$pkgdir/$path" "$pkgdir/usr/share/omarchy/etc-overrides/cups-cups-files.conf"' \
+    "$settings_recipe" || {
+      echo "$settings_package no longer removes cups-files.conf from its package-owned /etc tree" >&2
+      exit 1
+    }
+done
 if "$ROOT/bin/github-release-aarch64" advance --from stable --to edge \
   >"$work/reverse-advance.out" 2>&1; then
   echo "GitHub adapter allowed a reverse channel advance" >&2
