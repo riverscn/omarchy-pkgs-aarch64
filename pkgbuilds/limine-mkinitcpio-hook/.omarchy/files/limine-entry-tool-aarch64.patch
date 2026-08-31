@@ -383,20 +383,10 @@ index 36f636d..40fce4a 100644
          }
          if (shouldCheckDevice && !Utility.isSystemEfi()) {
 diff --git a/src/main/java/org/limine/entry/tool/processes/Utility.java b/src/main/java/org/limine/entry/tool/processes/Utility.java
-index 82cdbbc..0fb0541 100644
+index 82cdbbc..6634ea6 100644
 --- a/src/main/java/org/limine/entry/tool/processes/Utility.java
 +++ b/src/main/java/org/limine/entry/tool/processes/Utility.java
-@@ -557,7 +557,8 @@ public final class Utility {
-      * @return True if the system is running in EFI mode; otherwise, false.
-      */
-     public static boolean isSystemEfi() {
--        return new File("/sys/firmware/efi").exists();
-+        return "yes".equalsIgnoreCase(System.getenv("LIMINE_FORCE_UEFI"))
-+                || new File("/sys/firmware/efi").exists();
-     }
- 
- 
-@@ -570,6 +571,16 @@ public final class Utility {
+@@ -570,6 +570,16 @@ public final class Utility {
      }
  
  
