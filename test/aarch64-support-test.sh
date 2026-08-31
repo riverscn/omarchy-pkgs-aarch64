@@ -469,6 +469,10 @@ for invariant in BOOTAA64.EFI 'etc/mkinitcpio.d/*.preset' is_supported_uefi_arch
     exit 1
   }
 done
+if grep -R -q 'LIMINE_FORCE_UEFI' "$limine_dir"; then
+  echo 'Limine AArch64 support must preserve native UEFI detection' >&2
+  exit 1
+fi
 grep -Eq '^pkgrel=[0-9]+\.2$' "$limine_dir/PKGBUILD" || {
   echo 'Limine runtime patch does not carry an Omarchy package revision' >&2
   exit 1

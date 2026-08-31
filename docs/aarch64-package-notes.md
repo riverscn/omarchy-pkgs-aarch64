@@ -104,8 +104,10 @@ All 20 shared additions remain absent from the audited upstream 4.0.2 tree, so
 none has become a duplicate that can simply be removed. They do not all have
 the same necessity: `bindfs`, `dotnet-runtime-bin`, `gradle`,
 `gtk-engine-murrine`, and `gtk2` provide build, dependency, or selected runtime
-closure, while the other 15 additions deliberately restore application and
-libretro coverage lost to the 20 unsupported upstream bases. The latter are a
+closure. The 15 deliberate coverage replacements are `bitwarden`, `brave-bin`,
+`brave-origin-bin`, `ghostty`, `google-chrome`, `obsidian`, `ollama`,
+`pandoc-cli`, `pinta`, `zed`, `zen-browser-bin`, `libretro-blastem`,
+`libretro-desmume`, `libretro-kronos`, and `libretro-ppsspp`. These are a
 reviewable product-scope choice, not a hidden prerequisite of the generic
 AArch64 builder. Removing one would require an explicit scope decision and a
 corresponding count/test update; it must not happen accidentally during sync.
@@ -135,7 +137,7 @@ rebuilt again from the new baseline. Its package expanded to 477 files with
 nine AArch64 ELF files and two nested containers, including the source-built
 `linux-arm64` node-pty binding, with no foreign executable or audit error.
 Limine 1.37.1-2.2 was likewise rebuilt after narrowing its runtime patch: its
-GraalVM native image was AArch64 and the 34-file package passed with no foreign
+GraalVM native image was AArch64 and the 33-file package passed with no foreign
 payload or audit error. Neither build used QEMU or binfmt emulation.
 
 ## AUR post-sync exceptions
