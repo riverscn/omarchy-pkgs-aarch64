@@ -54,6 +54,11 @@ justification:
 
 - Stable runtime packages now follow the adapted official 4.0.2 source instead
   of retaining the previous `4.0.1.r...` fork revision.
+- The stable `omarchy-settings` recipe preserves upstream's staging of
+  `/etc/cups/cups-files.conf` under `/usr/share/omarchy/etc-overrides` instead
+  of owning the live path already provided by Arch's `cups` package. The
+  synchronized stable runtime pair uses `pkgrel=2` so this packaging correction
+  upgrades any earlier `4.0.2-1` build.
 - `github-copilot-cli` dropped its stale `pkgrel` suffix metadata when its AUR
   `pkgver` advanced. The ordinary local `.1` rebuild suffix is sufficient for
   the new version.
