@@ -163,6 +163,13 @@ A successful local run retains two evidence sets in the workspace:
   manifest, and `repository-build-audit.json`;
 - all `bin/repo` build/sign/promote logs.
 
+The manifest records both the complete archive filename set and a normalized
+package-name/version state derived from the final signed repository database.
+It is intentionally not derived from the locally changed archives: an
+incremental release would otherwise omit unchanged packages and could not be
+used as a complete immutable input by an image builder. The manifest also pins
+the package-repository commit that assembled that state.
+
 The audit records the package name, base, version, declared architecture,
 archive and signature SHA-256 hashes, expanded file and byte counts, ELF and
 managed-PE counts, reviewed/unreviewed wrong-architecture ELF and foreign

@@ -339,6 +339,15 @@ for invariant in \
     exit 1
   }
 done
+for invariant in \
+  'repository_state=$(mktemp)' \
+  'bsdtar -xOf "$database" '\''*/desc'\'' |' \
+  'packages: $state_packages[0]'; do
+  grep -Fq -- "$invariant" "$ROOT/build/github-release-prepare.sh" || {
+    echo "Repository manifest lost complete package state: $invariant" >&2
+    exit 1
+  }
+done
 for evidence_field in expanded_bytes non_target_elf_count \
   reviewed_non_target_elf_count managed_pe_count nested_archive_count \
   foreign_executable_count reviewed_foreign_executable_count max_depth_seen; do

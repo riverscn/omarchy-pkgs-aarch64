@@ -64,7 +64,8 @@ key_home=$(mktemp -d)
 srcinfo_work=$(mktemp -d)
 new_sums=$(mktemp)
 audit_rows=$(mktemp)
-trap 'rm -rf "$key_home" "$srcinfo_work" "$new_sums" "$audit_rows"' EXIT
+repository_state=$(mktemp)
+trap 'rm -rf "$key_home" "$srcinfo_work" "$new_sums" "$audit_rows" "$repository_state"' EXIT
 chmod 700 "$key_home"
 chown builder:builder "$srcinfo_work"
 
@@ -318,6 +319,38 @@ mapfile -t database_filenames < <(
     awk '$0 == "%FILENAME%" { getline; print }' | sort -u
 )
 
+# Preserve the complete signed-database package identity in the release
+# manifest. Incremental builds audit only changed archives locally, so this
+# state must come from the final repository database rather than audit_rows.
+bsdtar -xOf "$database" '*/desc' |
+  awk '
+    $0 == "%NAME%" { getline; name=$0 }
+    $0 == "%VERSION%" { getline; version=$0 }
+    $0 == "" && name != "" && version != "" {
+      print name "\t" version
+      name=""
+      version=""
+    }
+    END {
+      if (name != "" && version != "") print name "\t" version
+    }
+  ' |
+  jq -R -s '
+    split("\n")
+    | map(select(length > 0) | split("\t"))
+    | map(select(length == 2) | {name: .[0], version: .[1]})
+    | sort_by(.name)
+  ' > "$repository_state"
+jq -e --argjson expected "${#database_names[@]}" '
+  length == $expected
+  and all(.[]; (.name | type == "string" and length > 0)
+    and (.version | type == "string" and length > 0))
+  and ([.[].name] | unique | length) == $expected
+' "$repository_state" >/dev/null || {
+  echo "ERROR: cannot derive complete package state from repository database" >&2
+  exit 1
+}
+
 for package in "${changed_packages[@]}"; do
   printf '%s\n' "${database_filenames[@]}" | grep -Fxq "${package##*/}" || {
     echo "ERROR: built archive is not referenced by the repository database: ${package##*/}" >&2
@@ -443,12 +476,16 @@ jq -S -n \
   --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg signing_fingerprint "$EXPECTED_SIGNING_FINGERPRINT" \
   --argjson package_base_count "${#package_bases[@]}" \
+  --slurpfile state_packages "$repository_state" \
   --args \
   '{schema: 1, architecture: $architecture, channel: $channel,
     commit: $commit, generated_at: $generated_at,
     signing_fingerprint: $signing_fingerprint,
     validation_mode: $validation_mode,
-    package_base_count: $package_base_count, packages: $ARGS.positional}' \
+    package_base_count: $package_base_count, packages: $ARGS.positional,
+    state: {schema: 1, architecture: $architecture, channel: $channel,
+      commit: $commit, package_base_count: $package_base_count,
+      packages: $state_packages[0]}}' \
   "${database_filenames[@]}" > repository-manifest.json
 
 jq -S -s \
