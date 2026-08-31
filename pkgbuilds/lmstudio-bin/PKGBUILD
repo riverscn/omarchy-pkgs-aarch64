@@ -1,7 +1,7 @@
 # Maintainer: noureddinex
 pkgname=lmstudio-bin
-pkgver=0.4.21
-pkgrel=2
+pkgver=0.4.23
+pkgrel=1.1
 _pkgver=${pkgver}-${pkgrel}
 pkgdesc="LM Studio - A desktop app for exploring and running large language models locally"
 arch=('x86_64' 'aarch64')
@@ -22,8 +22,8 @@ sha256sums=(
   '9f791789c959a11316328692807737a5f1bc1c170ae99ec04c56bfd8ee8263e5'
   '635dec12f3e3a57136b9e6fd7c2839ed6da7287fa55b482d64debf6eacf36baa'
 )
-sha256sums_x86_64=('1014376d89d668c3814cd20e2b146a076146760ded1ef07b968fb61c58ded355')
-sha256sums_aarch64=('7edfee77530e3f778e11982207e21d2faaa1a538967c4a86cfc88aa169c22a7f')
+sha256sums_x86_64=('c1bdf195281e25dc921af5c91eb2502035240dce1217140c43036d6cf3038fd8')
+sha256sums_aarch64=('3333f28050744ad4bc293b995aad0047e66d890209df9dd01e582975d39ad7d6')
 
 prepare() {
   chmod +x "${srcdir}/LM-Studio.AppImage"

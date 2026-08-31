@@ -1,11 +1,11 @@
 pkgname=1password
 
 _tarver=8.12.34
-_tar_x86_64="1password-${_tarver}.x64.tar.gz"
+_tar_x86_64="1password-${_tarver}.${_archive_arch}.tar.gz"
 _tar_aarch64="1password-${_tarver}.arm64.tar.gz"
 _archive_arch=$([[ $CARCH == aarch64 ]] && echo arm64 || echo x64)
 pkgver=${_tarver//-/_}
-pkgrel=34
+pkgrel=34.1
 conflicts=('1password-beta' '1password-beta-bin')
 pkgdesc="Password manager and secure wallet"
 arch=('x86_64' 'aarch64')
