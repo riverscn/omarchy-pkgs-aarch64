@@ -248,13 +248,18 @@ if ! grep -Fq 'audit_failures=0' "$ROOT/build/github-release-prepare.sh" ||
   echo "Repository audit stops before reporting all invalid archives" >&2
   exit 1
 fi
-for package in limine-mkinitcpio-hook tensaku tzupdate; do
+for package in tensaku tzupdate; do
   jq -e '.pkgrel.offset == 1 and .pkgrel.suffix == 1' \
     "$ROOT/pkgbuilds/$package/.omarchy/package.json" >/dev/null || {
     echo "AUR synchronization would regress the published pkgrel for $package" >&2
     exit 1
   }
 done
+jq -e '.pkgrel.offset == 1 and .pkgrel.suffix == 2' \
+  "$ROOT/pkgbuilds/limine-mkinitcpio-hook/.omarchy/package.json" >/dev/null || {
+  echo 'AUR synchronization would regress the published pkgrel for limine-mkinitcpio-hook' >&2
+  exit 1
+}
 
 configured_fingerprint=$(tr -d '[:space:]' < "$ROOT/config/aarch64-signing-fingerprint")
 key_home=$(mktemp -d)

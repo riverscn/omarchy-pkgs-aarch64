@@ -142,8 +142,9 @@ but is not required for acceptance:
 4. Every package signature is verified. Each archive's `.PKGINFO` must name a
    scoped package and package base and report `arch = aarch64` or `arch = any`.
    The same generic package auditor used by the native builder then recursively
-   opens Electron ASAR and libarchive-supported containers. Every ELF machine
-   must be AArch64, while Mach-O, PE, and DOS executables fail until a
+   opens Electron ASAR, SquashFS/AppImage, and libarchive-supported containers.
+   AppImages are inspected without executing their vendor runtime. Every ELF
+   machine must be AArch64, while Mach-O, PE, and DOS executables fail until a
    package-local recipe has reviewed and removed them.
 5. The newly signed repository is synchronized with pacman, then a complete
    dependency transaction is resolved for every scoped output using only the
@@ -213,7 +214,7 @@ where the upstream-ready branch alone would be a downgrade:
 - the published Limine package revision floor; its AArch64 UEFI/runtime patch
   and sync hook now live in the upstream-ready branch;
 - the published rebuild revisions for `tensaku` and `tzupdate`;
-- T3 Code 0.0.36, updated through the shared upstream-sync mechanism while
+- T3 Code 0.0.37, updated through the shared upstream-sync mechanism while
   retaining both the existing x86_64 AppImage and native AArch64 source build.
 
 These are package/product differences, not release-backend code. Migration
