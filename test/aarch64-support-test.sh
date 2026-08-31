@@ -478,6 +478,20 @@ grep -Fq 'Cannot initialize the local build repository' "$ROOT/build/build.sh" |
   echo "Builder does not fail closed when its local repository cannot be initialized" >&2
   exit 1
 }
+remote_fallback_line=$(grep -nF 'echo "Server = $OMARCHY_REPOSITORY_SERVER"' \
+  "$ROOT/build/build.sh" | cut -d: -f1)
+local_repository_line=$(grep -nF 'echo "Server = file://$FINAL_OUTPUT_DIR"' \
+  "$ROOT/build/build.sh" | cut -d: -f1)
+[[ -n $remote_fallback_line && -n $local_repository_line &&
+   $remote_fallback_line -lt $local_repository_line ]] || {
+  echo "Sparse repository fallback must precede the incomplete local archive store" >&2
+  exit 1
+}
+grep -Fq 'Failed to synchronize the updated local build repository' \
+  "$ROOT/build/build.sh" || {
+  echo "Builder ignores a failed local repository refresh" >&2
+  exit 1
+}
 grep -Fq 'OMARCHY_REPOSITORY_KEY_FINGERPRINT' "$ROOT/bin/build" || {
   echo "Build entry point does not pass a pinned repository key into the container" >&2
   exit 1
@@ -557,6 +571,32 @@ grep -Fq \
   'Build order: omarchy-settings omarchy-settings-dev omarchy omarchy-dev' \
   <<< "$variant_plan" || {
   echo "Builder cannot order mutually exclusive stable/dev package variants" >&2
+  exit 1
+}
+
+# AArch64 channel switching must not replace the adapted runtime with the
+# unmodified upstream source. Stable pins one reviewed commit, while the two
+# edge-only development packages follow the adapted quattro branch together.
+stable_commit=$(sed -n "s/^_commit='\([^']*\)'/\1/p" "$ROOT/pkgbuilds/omarchy/PKGBUILD")
+settings_commit=$(sed -n "s/^_commit='\([^']*\)'/\1/p" "$ROOT/pkgbuilds/omarchy-settings/PKGBUILD")
+[[ $stable_commit =~ ^[0-9a-f]{40}$ && $stable_commit == "$settings_commit" ]] || {
+  echo "Stable Omarchy packages do not pin the same adapted source commit" >&2
+  exit 1
+}
+for development_package in omarchy-dev omarchy-settings-dev; do
+  grep -Fq 'git+https://github.com/riverscn/omarchy-aarch64.git#branch=aarch64-quattro' \
+    "$ROOT/pkgbuilds/$development_package/PKGBUILD" || {
+    echo "$development_package does not follow the adapted AArch64 quattro branch" >&2
+    exit 1
+  }
+  grep -Fq 'Required upstream version baseline is missing:' \
+    "$ROOT/pkgbuilds/$development_package/PKGBUILD" || {
+    echo "$development_package can silently change VCS version schemes when the fork loses an upstream tag" >&2
+    exit 1
+  }
+done
+grep -Eq "^[[:space:]]+'omarchy-aarch64-keyring'$" "$ROOT/pkgbuilds/omarchy-dev/PKGBUILD" || {
+  echo "The edge runtime can orphan the AArch64 repository keyring" >&2
   exit 1
 }
 grep -Fq '[[ $ARCH == aarch64 && $(uname -m) == aarch64 ]]' "$ROOT/bin/sign" || {

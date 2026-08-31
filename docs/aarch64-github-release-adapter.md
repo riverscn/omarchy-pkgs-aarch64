@@ -54,6 +54,20 @@ tooling. It does not introduce a fourth `dev` channel. The development pair,
 `omarchy-dev` and `omarchy-settings-dev`, is explicitly edge-only in its package
 metadata.
 
+The package sources follow the same split. Stable and RC use the normal
+`omarchy`/`omarchy-settings` pair pinned to a reviewed AArch64-adapted commit;
+edge and dev use `omarchy-dev`/`omarchy-settings-dev` from the adapted
+`aarch64-quattro` branch. The adapter never packages an unmodified
+`basecamp/omarchy` checkout for AArch64, because that would discard the native
+Arch Linux ARM pacman configuration and channel mapping during a channel
+change.
+
+The fork must retain the upstream `_pkgver_base_tag` used by these VCS
+recipes. The AArch64 development recipes fail closed when that tag is absent;
+otherwise `pkgver()` would silently switch from post-tag counting to whole
+history counting and create a version sequence that no longer matches the
+upstream development packages.
+
 Likewise, `alpha`, `beta`, and `rc` in `bin/omarchy-pkgs release` are package
 version labels, not additional repository channels. Their pinned artifacts are
 published to the repository channel selected by the upstream release workflow;
@@ -62,8 +76,8 @@ the storage layout remains exactly `edge`, `rc`, and `stable`.
 | Channel | Managed tag | Client URL | Repository scope | Native build scope |
 | --- | --- | --- | ---: | ---: |
 | edge | `aarch64-edge` | `releases/download/aarch64-edge` | 118 bases | 118 bases |
-| rc | `aarch64-rc` | `releases/download/aarch64-rc` | 116 bases | 40 fast-ring bases, plus 2 pinned bases only from the `rc` branch |
-| stable | `aarch64-stable` | `releases/latest/download` or `releases/download/aarch64-stable` | 116 bases | 40 fast-ring bases |
+| rc | `aarch64-rc` | `releases/download/aarch64-rc` | 116 bases | metadata-derived fast ring, plus 2 pinned bases only from the `rc` branch |
+| stable | `aarch64-stable` | `releases/latest/download` or `releases/download/aarch64-stable` | 116 bases | metadata-derived fast ring |
 
 The scope is derived from the same `channels`, `release_ring`, and `pinned`
 metadata functions used by `bin/repo`. Normal packages are built in edge and
@@ -186,10 +200,11 @@ also independently derives the complete `edge/aarch64` set from package
 metadata, requires it to match the combined manifests, and checks that removing
 the overlay yields the upstream-aligned manifest exactly. Finally, it generates
 `.SRCINFO` with `CARCH=aarch64` for every scoped base and requires the derived
-edge, rc, and stable repository/build scopes to remain 118/116/116 and
-118/40/40 bases respectively. An RC-branch build includes exactly the two
-additional pinned bases. Upstream package additions, removals, channel changes,
-or accidental fork-only additions cannot drift silently.
+edge, rc, and stable repository scopes to remain 118/116/116, requires the edge
+build scope to equal its complete repository scope, and requires rc and stable
+to derive the same fast-ring set from current metadata. An RC-branch build must
+add exactly the two pinned bases. Upstream package additions, removals, ring or
+channel changes, or accidental fork-only additions cannot drift silently.
 
 The integration also carries forward the current fork's newer package state
 where the upstream-ready branch alone would be a downgrade:
@@ -364,8 +379,8 @@ failed before repository synchronization.
 The channel adapter was then rehearsed locally on the same native AArch64 host.
 The signed production database selected all 118 edge bases—including
 `omarchy-dev` and `omarchy-settings-dev`—and skipped all 118 as current. Separate
-stable and bootstrapped-rc runs selected exactly their 40 fast-ring bases and
-also skipped all 40 as current. The three runs imported the pinned repository
+stable and bootstrapped-rc runs selected exactly the 40 fast-ring bases present
+in that tested snapshot and skipped all 40 as current. The three runs imported the pinned repository
 key, synchronized the channel database, and used the regular Docker builder;
 none registered binfmt or invoked QEMU. This validates channel isolation and
 incremental selection without mutating a GitHub Release.
