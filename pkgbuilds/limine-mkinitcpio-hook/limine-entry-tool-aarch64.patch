@@ -38,14 +38,7 @@ diff --git a/install/arch-linux/limine-entry-tool/usr/lib/limine/limine-common-f
 index b56cc30..53952c6 100644
 --- a/install/arch-linux/limine-entry-tool/usr/lib/limine/limine-common-functions
 +++ b/install/arch-linux/limine-entry-tool/usr/lib/limine/limine-common-functions
-@@ -49,11 +49,14 @@ mutex_unlock() {
- }
- 
- is_uefi() {
--	[[ -d /sys/firmware/efi ]]
-+	[[ "${LIMINE_FORCE_UEFI:-no}" == "yes" || -d /sys/firmware/efi ]]
- }
- 
+@@ -55,5 +55,8 @@ is_uefi() {
 -is_x64() {
 -	[[ "$(uname -m)" == "x86_64" ]]
 +is_supported_uefi_arch() {

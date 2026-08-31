@@ -24,8 +24,8 @@ acceptance should be performed on a native AArch64 builder.
 - An AArch64 Gradle bootstrap package in the normal build plan so packages such
   as Limine do not depend on a package that the ARM repository cannot provide.
 - A bounded final-package architecture audit that recursively opens Electron
-  ASAR and libarchive-supported containers before an AArch64 artifact is
-  admitted to the build repository.
+  ASAR, SquashFS/AppImage, and libarchive-supported containers before an
+  AArch64 artifact is admitted to the build repository.
 - Metadata and dry-run tests that do not require changes to upstream's CI
   runner architecture.
 
@@ -130,8 +130,9 @@ the package archive's independently calculated SHA-256 digest.
 The generic build path now runs `bin/audit-package-architecture` against every
 final AArch64 archive before copying it to `build-output` or adding it to the
 temporary repository database. It validates every ELF machine and recursively
-opens standard Electron ASAR, tar, zip, Debian, RPM, and other
-libarchive-supported containers. ECMA-335 managed assemblies are counted
+opens standard Electron ASAR, SquashFS/AppImage, tar, zip, Debian, RPM, and
+other libarchive-supported containers. AppImages are inspected with
+`unsquashfs`; their vendor runtime is never executed. ECMA-335 managed assemblies are counted
 separately from native Windows PE files. Wrong-architecture ELF, Mach-O, native
 PE, and DOS executables fail unless a package-local review pins either that
 exact relative file or its deliberate cross-platform container by SHA-256.
@@ -165,8 +166,9 @@ are bounded. File sizes and types are enumerated in batches, so a Gradle
 archive expanding to more than 100,000 files completes in tens of seconds
 rather than spawning one classifier process per file. The dependency-free ASAR
 reader avoids an npm or network dependency in the release environment.
-Synthetic tests cover good and bad ASAR payloads, nested tar payloads, managed
-PE, native foreign formats, exact file/container reviews, changed and stale
+Synthetic tests cover good, bad, and malformed ASAR and AppImage payloads,
+nested tar payloads, managed PE, native foreign formats, exact
+file/container reviews, changed and stale
 allowlists, false-positive archive signatures, both supported target
 architectures, and every configured resource limit.
 

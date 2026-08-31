@@ -136,6 +136,43 @@ fi
   exit 1
 }
 
+# The AUR xpadneo recipe names Omarchy's x86_64 kernel-header placeholder.
+# Preserve that existing build path, but do not leak the x86-only provider into
+# the AArch64 dependency graph.
+xpadneo_arm_srcinfo=$(print_srcinfo "$ROOT/pkgbuilds/xpadneo-dkms" aarch64)
+if grep -Fq 'checkdepends = LINUX-HEADERS' <<< "$xpadneo_arm_srcinfo"; then
+  echo 'xpadneo AArch64 metadata retains the x86_64 kernel-header placeholder' >&2
+  exit 1
+fi
+xpadneo_x86_srcinfo=$(print_srcinfo "$ROOT/pkgbuilds/xpadneo-dkms" x86_64)
+grep -Fq 'checkdepends = LINUX-HEADERS' <<< "$xpadneo_x86_srcinfo" || {
+  echo 'xpadneo x86_64 metadata lost its existing kernel-header placeholder' >&2
+  exit 1
+}
+grep -Fq "if [[ \$CARCH == x86_64 ]]; then" \
+  "$ROOT/pkgbuilds/xpadneo-dkms/PKGBUILD" || {
+  echo 'xpadneo AArch64 adaptation changed the existing x86_64 header path' >&2
+  exit 1
+}
+grep -Fq "if [[ \\\$CARCH == x86_64 ]]; then" \
+  "$ROOT/pkgbuilds/xpadneo-dkms/.omarchy/post-sync.sh" || {
+  echo 'xpadneo AUR synchronization would discard the scoped header dependency' >&2
+  exit 1
+}
+xpadneo_sync_work="$metadata_work/xpadneo-sync"
+mkdir -p "$xpadneo_sync_work"
+printf '%s\n' "checkdepends=('dkms' 'fakeroot' 'LINUX-HEADERS')" \
+  > "$xpadneo_sync_work/PKGBUILD"
+(
+  cd "$xpadneo_sync_work"
+  "$ROOT/pkgbuilds/xpadneo-dkms/.omarchy/post-sync.sh"
+)
+grep -Fq 'if [[ $CARCH == x86_64 ]]; then' \
+  "$xpadneo_sync_work/PKGBUILD" || {
+  echo 'xpadneo post-sync did not produce the architecture guard' >&2
+  exit 1
+}
+
 # Ghostty fetches a pinned Zig dependency graph before building. A transient
 # mirror failure must be retried, but never indefinitely.
 ghostty_pkgbuild="$ROOT/pkgbuilds/ghostty/PKGBUILD"
@@ -150,6 +187,17 @@ for recipe in "$ghostty_pkgbuild" "$ghostty_post_sync"; do
 done
 grep -Fq 'Upstream Ghostty dependency-fetch command changed' "$ghostty_post_sync" || {
   echo 'Ghostty post-sync does not fail closed when its upstream baseline changes' >&2
+  exit 1
+}
+
+# LM Studio's asset path contains the AUR/vendor pkgrel. Omarchy's local
+# rebuild suffix must not change that vendor URL.
+grep -Eq '^_vendor_pkgrel=[0-9]+$' "$ROOT/pkgbuilds/lmstudio-bin/PKGBUILD" &&
+  grep -Fq '_pkgver=${pkgver}-${_vendor_pkgrel}' \
+    "$ROOT/pkgbuilds/lmstudio-bin/PKGBUILD" &&
+  grep -Fq '_vendor_pkgrel=${vendor_pkgrel}' \
+    "$ROOT/pkgbuilds/lmstudio-bin/.omarchy/post-sync.sh" || {
+  echo 'LM Studio local pkgrel suffix can leak into the vendor asset URL' >&2
   exit 1
 }
 
@@ -211,7 +259,9 @@ grep -Fq '/linux/x64/agent-cli-package.tar.gz' <<< "$cursor_x86_srcinfo" || {
 
 if ! grep -Fq "Copilot's ARM64 package lacks" \
   "$ROOT/pkgbuilds/github-copilot-cli/PKGBUILD" ||
-  ! grep -Fq "! -name 'clipboard.linux-arm64-gnu.node' -delete" \
+  ! grep -Fq 'prebuilds/linux-arm64/copilot-runtime' \
+    "$ROOT/pkgbuilds/github-copilot-cli/PKGBUILD" ||
+  ! grep -Fq 'rm -rf "${_arm_mod}/ripgrep/bin/linux-x64"' \
     "$ROOT/pkgbuilds/github-copilot-cli/PKGBUILD"; then
   echo 'GitHub Copilot CLI does not validate native helpers before pruning foreign copies' >&2
   exit 1
@@ -419,7 +469,7 @@ for invariant in BOOTAA64.EFI 'etc/mkinitcpio.d/*.preset' is_supported_uefi_arch
     exit 1
   }
 done
-grep -Eq '^pkgrel=[0-9]+\.1$' "$limine_dir/PKGBUILD" || {
+grep -Eq '^pkgrel=[0-9]+\.2$' "$limine_dir/PKGBUILD" || {
   echo 'Limine runtime patch does not carry an Omarchy package revision' >&2
   exit 1
 }
