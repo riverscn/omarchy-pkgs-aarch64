@@ -315,6 +315,21 @@ for operation in bootstrap-rc advance-edge-rc advance-rc-stable; do
     exit 1
   }
 done
+grep -Fq 'Stable RC baseline staged; overlaying current forwardable edge packages before first publication.' \
+  "$ROOT/bin/github-release-aarch64" || {
+  echo "RC bootstrap does not atomically overlay forwardable edge corrections" >&2
+  exit 1
+}
+grep -Fq 'replace only the unpublished copy' \
+  "$ROOT/bin/github-release-aarch64" || {
+  echo "Chained RC bootstrap does not distinguish unpublished and immutable assets" >&2
+  exit 1
+}
+grep -Fq 'multiple staged versions found for package' \
+  "$ROOT/bin/github-release-aarch64" || {
+  echo "Chained RC bootstrap does not reject ambiguous staged package versions" >&2
+  exit 1
+}
 grep -Fq 'OMARCHY_RC_PINS:' "$workflow" || {
   echo "RC branch builds do not enable the upstream pinned-package guard" >&2
   exit 1

@@ -462,8 +462,9 @@ stage_advance() (
   command -v tar >/dev/null || { echo "ERROR: tar is required" >&2; return 1; }
 
   local source_tag source_work entry_map name base filename key package_dir
-  local source_hash source_sig_hash target_hash target_sig_hash copied=0 present=0 skipped=0
-  local asset
+  local source_hash source_sig_hash target_hash target_sig_hash local_hash local_sig_hash
+  local staged staged_info staged_name staged_filename
+  local copied=0 present=0 replaced=0 skipped=0 asset
   local -a download_args=()
   source_tag=${SOURCE_RELEASE_TAG:-"aarch64-$FROM_CHANNEL"}
   source_work=$(mktemp -d)
@@ -475,10 +476,34 @@ stage_advance() (
   declare -A entry_dirs=()
   declare -A name_dirs=()
   declare -A download_hashes=()
+  declare -A staged_filename_by_name=()
   while IFS=$'\t' read -r base name package_dir; do
     entry_dirs["$base:$name"]=$package_dir
     name_dirs["$name"]=$package_dir
   done < "$entry_map"
+
+  # A one-time RC initialization may stage a stable baseline and then overlay
+  # current forwardable edge packages before publishing anything. Record the
+  # already staged package names so identical archives are reused and a newer
+  # archive can replace the legacy version atomically in the local snapshot.
+  shopt -s nullglob
+  for staged in "$REPO_DIR"/*.pkg.tar.zst; do
+    staged_info=$(tar -xOf "$staged" .PKGINFO) || {
+      echo "ERROR: staged archive lacks readable .PKGINFO: ${staged##*/}" >&2
+      return 1
+    }
+    staged_name=$(awk -F ' = ' '$1 == "pkgname" { print $2; exit }' <<< "$staged_info")
+    [[ $staged_name =~ ^[A-Za-z0-9@._+-]+$ ]] || {
+      echo "ERROR: staged archive has invalid package name: ${staged##*/}" >&2
+      return 1
+    }
+    [[ -z ${staged_filename_by_name[$staged_name]:-} ]] || {
+      echo "ERROR: multiple staged versions found for package $staged_name" >&2
+      return 1
+    }
+    staged_filename_by_name["$staged_name"]=${staged##*/}
+  done
+  shopt -u nullglob
 
   while IFS=$'\t' read -r name base filename; do
     [[ $filename == "${filename##*/}" && $filename == *.pkg.tar.zst ]] || {
@@ -506,6 +531,33 @@ stage_advance() (
     }
     target_hash=$(checksum_for "$REPO_DIR/.baseline-SHA256SUMS" "$filename" 2>/dev/null || true)
     target_sig_hash=$(checksum_for "$REPO_DIR/.baseline-SHA256SUMS" "$filename.sig" 2>/dev/null || true)
+
+    # Chained staging reuses byte-identical archives already copied into the
+    # unpublished target workspace. A forwardable package built separately in
+    # stable and edge may legitimately have the same versioned filename but
+    # different bytes; replace only the unpublished copy. Once that filename
+    # exists in the target baseline, the immutable-asset check below still
+    # refuses different bytes.
+    if [[ -e $REPO_DIR/$filename || -e $REPO_DIR/$filename.sig ]]; then
+      [[ -f $REPO_DIR/$filename && -f $REPO_DIR/$filename.sig ]] || {
+        echo "ERROR: staged package or signature is incomplete: $filename" >&2
+        return 1
+      }
+      local_hash=$(sha256sum "$REPO_DIR/$filename" | awk '{ print $1 }')
+      local_sig_hash=$(sha256sum "$REPO_DIR/$filename.sig" | awk '{ print $1 }')
+      if [[ $local_hash == "$source_hash" && $local_sig_hash == "$source_sig_hash" ]]; then
+        ((present += 1))
+        continue
+      fi
+      [[ -z $target_hash && -z $target_sig_hash ]] || {
+        echo "ERROR: $filename or its signature already exists in $TO_CHANNEL with different bytes" >&2
+        return 1
+      }
+      rm -f -- "$REPO_DIR/$filename" "$REPO_DIR/$filename.sig"
+      unset 'staged_filename_by_name[$name]'
+      ((replaced += 1))
+    fi
+
     if [[ -n $target_hash || -n $target_sig_hash ]]; then
       [[ $target_hash == "$source_hash" && $target_sig_hash == "$source_sig_hash" ]] || {
         echo "ERROR: $filename or its signature already exists in $TO_CHANNEL with different bytes" >&2
@@ -515,6 +567,12 @@ stage_advance() (
       continue
     fi
 
+    staged_filename=${staged_filename_by_name[$name]:-}
+    if [[ -n $staged_filename && $staged_filename != "$filename" ]]; then
+      rm -f -- "$REPO_DIR/$staged_filename" "$REPO_DIR/$staged_filename.sig"
+      unset 'staged_filename_by_name[$name]'
+      ((replaced += 1))
+    fi
     download_args+=(--pattern "$filename" --pattern "$filename.sig")
     download_hashes["$filename"]=$source_hash
     download_hashes["$filename.sig"]=$source_sig_hash
@@ -539,7 +597,7 @@ stage_advance() (
     }
   done
 
-  echo "Staged $copied package(s) for $FROM_CHANNEL -> $TO_CHANNEL; $present already present, $skipped not moved."
+  echo "Staged $copied package(s) for $FROM_CHANNEL -> $TO_CHANNEL; $present already present, $replaced superseded, $skipped not moved."
 )
 
 run_advance() {
@@ -547,6 +605,13 @@ run_advance() {
   ALLOW_EMPTY_BASELINE=$BOOTSTRAP
   seed_repository
   stage_advance
+  if [[ $BOOTSTRAP == true && $FROM_CHANNEL == stable && $TO_CHANNEL == rc ]]; then
+    echo "Stable RC baseline staged; overlaying current forwardable edge packages before first publication."
+    BOOTSTRAP=false
+    FROM_CHANNEL=edge
+    SOURCE_RELEASE_TAG=""
+    stage_advance
+  fi
   prepare_repository
   publish_repository
 }

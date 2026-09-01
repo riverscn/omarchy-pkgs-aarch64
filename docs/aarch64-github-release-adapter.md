@@ -300,16 +300,26 @@ initialized rc/stable channel; an uninitialized non-edge channel is skipped
 until its explicit bootstrap. Pushes to `rc` update only rc and enable the
 shared pinned-package guard. Manual `release` runs select one channel and are
 incremental/non-publishing by default. A manual full rebuild is accepted only
-for edge and can never publish. The three manual advancement operations map
-one-to-one to stable-to-rc bootstrap, edge-to-rc advance, and rc-to-stable
-advance.
+for edge and can never publish. The three manual advancement operations map to
+RC bootstrap, edge-to-rc advance, and rc-to-stable advance. RC bootstrap
+remains a stable-based operation, but its first publication is atomic: after
+staging the stable baseline it overlays packages that are currently eligible
+to move from edge, then audits and publishes the resulting snapshot once. This
+keeps a legacy stable archive that has already been superseded by a reviewed
+edge correction from becoming a briefly visible or unauditable RC baseline.
+Fast-ring packages are not overlaid; they remain native RC builds. If stable
+and edge contain a forwardable package with the same versioned filename but
+different independently built bytes, only the unpublished staged copy may be
+replaced; an existing target Release asset remains immutable and a different
+digest still fails closed.
 
 The initial fork rollout is deliberate: retain the already validated
 `aarch64-stable`, publish the first `aarch64-edge`, update the legacy stable
 snapshot so its two edge-only development packages are removed, bootstrap
-`aarch64-rc` from that stable snapshot, and then use only forward advancement.
-No workflow silently constructs rc or stable by rebuilding the complete edge
-set.
+`aarch64-rc` from that stable snapshot plus the current forwardable edge
+deltas, and then use only forward advancement. The combined first snapshot is
+audited before it becomes visible. No workflow silently constructs rc or
+stable by rebuilding the complete edge set.
 
 ## Validation checklist
 
@@ -392,3 +402,12 @@ in that tested snapshot and skipped all 40 as current. The three runs imported t
 key, synchronized the channel database, and used the regular Docker builder;
 none registered binfmt or invoked QEMU. This validates channel isolation and
 incremental selection without mutating a GitHub Release.
+
+The first production RC bootstrap on 2026-09-01 then exercised the fail-closed
+boundary against the legacy stable snapshot. The complete bootstrap audit
+rejected `typora-1.14.9-1-aarch64.pkg.tar.zst` because it still contained the
+old x86_64 Mach-O `cld.node`; no RC Release was created. Edge already contained
+the reviewed `1.14.9-1.1` cleanup. The atomic bootstrap overlay described above
+was added so the corrected forwardable archive replaces that legacy version in
+the unpublished workspace before the complete RC audit. The foreign binary is
+not allowlisted, copied into RC, or exposed during an intermediate publication.
