@@ -258,6 +258,44 @@ rclone staging, or edge/rc/stable release train. Acceptance on that environment,
 followed by installation from a staged upstream repository, remains
 release-operations follow-up work as described below.
 
+### Zero-baseline refresh on 2026-09-02
+
+After the latest upstream additions, a second native AArch64 zero-baseline run
+selected 120 package bases: all 118 bases in the current shared pull-request
+scope plus the fork's two explicitly separated integration packages. The full
+sweep built 118 bases. `dbxcli-bin` stopped on a transient GitHub DNS failure,
+and a temporary attempt to tune pnpm network behavior also made `t3code-bin`
+reject an untyped option. The experiment was discarded rather than becoming
+package policy. Subsequent native targeted builds completed both packages,
+successful staging archives were preserved, and the repository database was
+regenerated from the combined output. No generic download retry, timeout, or
+concurrency policy was retained because those concerns are independent of
+AArch64 support.
+
+The resulting repository contains exactly 120 unique `pkgbase` values and 149
+package archives: 114 declare `aarch64` and 35 declare `any`. The expected and
+actual package-base sets match exactly after accounting for the existing
+`dotnet-runtime-bin` → `dotnet-core-bin` and `yaru-icon-theme` → `yaru`
+pkgbase names. All 149 database filenames and SHA-256 values match independent
+checks of the archives.
+
+Every final archive passed the recursive architecture policy. The only host-side
+rescan failure was environmental: the host lacked `unsquashfs` for LM Studio's
+nested AppImage. Repeating that one read-only audit in the same native AArch64
+builder image expanded 2,254 files across four containers, inspected 55 ELF
+files, and reported zero wrong-architecture, foreign, or unreviewed payloads.
+The exact .NET, Gradle, Heroic, and VS Code exceptions remained the only reviewed
+foreign artifacts; no new exception was added during this run. The refreshed
+Sunshine recursive source graph, Symfony CLI source build, rebased PPSSPP asset
+patch, T3 Code source build, and BlastEm's normal LTO path all completed
+natively.
+
+No QEMU or binfmt emulation was used. This refresh intentionally stopped at an
+unsigned local repository because the production private key and publication
+credentials were not present on the validation host. Production signing,
+rclone staging, and a clean-client install/upgrade from the upstream staging
+remote therefore remain operator acceptance work.
+
 ## Known vendor payload limitations
 
 Two official ARM64 application archives still have upstream feature gaps that

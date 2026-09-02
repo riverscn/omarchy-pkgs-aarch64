@@ -99,6 +99,13 @@ The currently published AArch64 repositories already contain `0.28.0-2.1` and
 build sort below installed systems. `bin/sync-aur` removes that metadata
 automatically when either package advances to a new `pkgver`.
 
+- PPSSPP's generic assets-path patch was rebased against the pinned libretro
+  source revision. Its install path is unchanged, but it now applies without
+  fuzz. The package-local post-sync hook preserves that exact replacement only
+  when the fetched upstream patch still matches the reviewed old digest; a new
+  upstream baseline therefore stops for review instead of silently restoring
+  the stale hunk.
+
 ### Upstream additions reviewed on 2026-09-01
 
 Merging upstream commit `a3d150e2b02c05fa5f7736d82bd42839516d2a3f`
@@ -180,7 +187,7 @@ payload or audit error. Neither build used QEMU or binfmt emulation.
 | `asdcontrol` | The upstream recipe unnecessarily restricts the package to x86_64. | `post-sync.sh` extends the architecture declaration only. |
 | `cursor-bin` | ARM64 uses the vendor Debian bundle, while the x86_64 recipe repackages against system Electron. The ARM bundle also contains a Windows x64 JS-debug native module. | `post-sync.sh` adds the ARM source, computes its checksum during sync, separates dependencies, installs the vendor bundle through an ARM-only package function, and removes Windows-only JS-debug modules. |
 | `cursor-cli` | The vendor's ARM64 archive contains a working native `tree-sitter-bash` binding but also bundles unused x86_64, Windows, and macOS prebuilds. | An AUR-sync recipe patch verifies the native binding and removes the foreign prebuild directory only from the AArch64 package. The x86_64 package path is unchanged. |
-| `ghostty` | The Arch Linux ARM toolchain does not supply the same Zig input expected by the upstream recipe. | `post-sync.sh` adds a pinned upstream AArch64 Zig archive and selects it only for the ARM build. The upstream dependency-cache fetch is retried at most three times so a transient download failure does not invalidate an otherwise reproducible build. |
+| `ghostty` | The Arch Linux ARM toolchain does not supply the same Zig input expected by the upstream recipe. | `post-sync.sh` adds a pinned upstream AArch64 Zig archive and selects it only for dependency resolution and the ARM build. |
 | `github-copilot-cli` | The vendor artifact supports ARM64 but the AUR architecture list is narrower, and its ARM npm payload also retains x64 Linux search helpers alongside native copies. | `post-sync.sh` extends the architecture declaration. A recipe patch requires the ARM64 core runtime, native addons, `rg`, and `tgrep`, then removes only the x64 Linux search helpers on AArch64. |
 | `grok-bot` | Vendor download paths and archives differ by architecture. | `post-sync.sh` adds the ARM64 Debian source and computes its checksum during sync. |
 | `heroic-games-launcher-bin` | The AUR package follows Heroic's x86_64 archive, but Heroic does not publish a Linux ARM64 application artifact. Two x86_64 Windows shims are intentional runtime data for its Wine integrations. | A recipe patch preserves the AUR x86_64 path and builds the same tag from source for ARM64. Its `post-sync.sh` scopes the AUR artifact to x86_64, pins the ARM source checksum, and stops for review if Heroic changes any helper-binary version. The two Wine shims are retained only under exact path-and-digest audit entries. |

@@ -36,6 +36,34 @@ assert_scope_count scope edge 120
 assert_scope_count scope rc 118
 assert_scope_count scope stable 118
 assert_scope_count build-scope edge 120
+
+# A staged release must retain the review boundary between the upstream-aligned
+# scope and the fork-only overlay. A combined 120-entry file produces the same
+# repository but loses the evidence that only two package bases are downstream.
+adapter_root="$work/adapter-root"
+mkdir -p "$adapter_root/bin"
+cp "$ROOT/bin/github-release-aarch64" "$adapter_root/bin/"
+ln -s "$ROOT/config" "$adapter_root/config"
+ln -s "$ROOT/helpers" "$adapter_root/helpers"
+ln -s "$ROOT/pkgbuilds" "$adapter_root/pkgbuilds"
+"$adapter_root/bin/github-release-aarch64" seed --channel edge --no-baseline >/dev/null
+mapfile -t staged_upstream_scope < \
+  "$adapter_root/pkgs.omarchy.org/edge/aarch64/.channel-package-scope"
+mapfile -t staged_fork_scope < \
+  "$adapter_root/pkgs.omarchy.org/edge/aarch64/.channel-fork-scope"
+[[ ${#staged_upstream_scope[@]} -eq ${#upstream_packages[@]} ]] || {
+  echo "Staged upstream scope lost its 118-base review boundary" >&2
+  exit 1
+}
+[[ ${#staged_fork_scope[@]} -eq ${#fork_packages[@]} ]] || {
+  echo "Staged fork scope does not contain exactly the reviewed overlay" >&2
+  exit 1
+}
+diff -u <(printf '%s\n' "${upstream_packages[@]}") \
+  <(printf '%s\n' "${staged_upstream_scope[@]}")
+diff -u <(printf '%s\n' "${fork_packages[@]}") \
+  <(printf '%s\n' "${staged_fork_scope[@]}")
+
 edge_scope_output=$("$ROOT/bin/github-release-aarch64" scope --channel edge)
 rc_scope_output=$("$ROOT/bin/github-release-aarch64" scope --channel rc)
 stable_scope_output=$("$ROOT/bin/github-release-aarch64" scope --channel stable)
