@@ -102,7 +102,7 @@ if [[ -n "${OMARCHY_SRC:-}" ]]; then
   source=()
   sha256sums=()
 else
-  source=("omarchy::git+https://github.com/riverscn/omarchy-aarch64.git#branch=aarch64-quattro")
+  source=("omarchy::git+https://github.com/riverscn/omarchy-aarch64.git#branch=quattro")
   sha256sums=('SKIP')
 fi
 

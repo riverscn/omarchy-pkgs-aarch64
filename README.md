@@ -35,7 +35,7 @@ The filesystem no longer encodes release policy. Instead:
 - packages that follow a vendor release feed instead of the AUR carry an `.omarchy/upstream.sh` hook
 
 ## Prerequisites
-### aarch64 Builds (Optional)
+### Cross-building aarch64 on x86_64 (upstream optional path)
 
 To build ARM64 packages on x86_64, enable QEMU emulation:
 
@@ -48,7 +48,9 @@ docker run --rm --platform linux/arm64 alpine:latest uname -m
 # Should output: aarch64
 ```
 
-**Note**: aarch64 builds use QEMU and slower than native x86_64 builds.
+**Note**: this preserves upstream's optional cross-host workflow. The fork's
+GitHub AArch64 release adapter does not enable QEMU or binfmt; production and
+zero-baseline validation run on a native AArch64 Docker host.
 
 ## Quick Start
 
@@ -450,7 +452,7 @@ The `omarchy` and `omarchy-settings` packages are released as a pair, always
 built from the same reviewed source commit. The upstream repository uses
 `basecamp/omarchy`; the AArch64 release adapter pins the corresponding adapted
 commit from `riverscn/omarchy-aarch64`. Its edge-only development pair follows
-that fork's `aarch64-quattro` branch so changing channels cannot replace the
+that fork's canonical `quattro` branch so changing channels cannot replace the
 AArch64 runtime with an unadapted checkout.
 
 **Use `bin/omarchy-release`** (see [Cutting an Omarchy release](#cutting-an-omarchy-release)
@@ -713,7 +715,8 @@ bin/repo release --package my-package
 - Mirrors: mirror.omarchy.org, rackspace, pkgbuild.com
 
 ### aarch64
-- QEMU emulation required on x86_64 hosts (slower)
+- Native AArch64 is required for this fork's release adapter
+- Upstream's optional x86_64-host path uses QEMU emulation and is not a release path here
 - Uses Arch Linux ARM repositories
 - Additional repos: `[alarm]`, `[aur]`
 - Same workflow, just add `--arch aarch64`

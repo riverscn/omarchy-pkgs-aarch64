@@ -99,9 +99,36 @@ The currently published AArch64 repositories already contain `0.28.0-2.1` and
 build sort below installed systems. `bin/sync-aur` removes that metadata
 automatically when either package advances to a new `pkgver`.
 
-The shared AArch64 scope continues to replace the 20 explicitly unsupported
-upstream package bases with 20 reviewed additions, keeping the package-base
-count aligned with upstream. `omarchy-aarch64-keyring` and
+### Upstream additions reviewed on 2026-09-01
+
+Merging upstream commit `a3d150e2b02c05fa5f7736d82bd42839516d2a3f`
+introduced or restored five package bases. `python-sounddevice` declares
+`arch=(any)`, has no native payload, and is included in the shared AArch64
+scope without a downstream recipe change. The remaining four are deliberately
+excluded until their native paths are proved:
+
+| Package base | Current blocker |
+| --- | --- |
+| `python-mediapipe` | The upstream recipe downloads and executes `bazel-7.4.1-linux-x86_64`, declares only x86_64, and depends on `python-tensorflow`. A native Bazel/toolchain and dependency closure must be validated before enabling it. |
+| `link-studio` | The source itself is plausibly portable, but its required `python-mediapipe` dependency is not yet available in the AArch64 package scope. |
+| `omakade` | The Qt/CMake source recipe declares only x86_64. It may be enabled after a clean native AArch64 build and payload audit. |
+| `omapresent` | Upstream explicitly describes AArch64 as plausible but unproven. Its Qt WebEngine build and resulting payload require the same native validation. |
+
+These are tracked capability gaps, not replacement slots. The maintained scope
+follows every upstream package whose AArch64 recipe and dependency closure are
+actually validated; it is not padded with unrelated packages merely to keep a
+historical package count equal to x86_64.
+
+### Upstream addition reviewed on 2026-09-02
+
+Upstream commit `22e908d831f1e3b494abd018f14f9a66e942d5af` adds
+`perplexity`. Its vendor repository publishes matching amd64 and arm64 Debian
+packages, the recipe pins independent checksums for both, and its package
+metadata places it in the fast ring. It therefore enters the shared AArch64
+scope unchanged; no architecture patch or audit exception is required.
+
+The shared AArch64 scope retains the 20 reviewed coverage additions selected
+during the original alignment. `omarchy-aarch64-keyring` and
 `omarchy-spice-guest-tools` remain separately identified downstream additions;
 they are not presented as general architecture enablement.
 
@@ -164,7 +191,7 @@ payload or audit error. Neither build used QEMU or binfmt emulation.
 | `libretro-kronos` | The core needs ARM64 platform and CD-ROM feature flags. | `post-sync.sh` injects those make options only for AArch64. |
 | `libretro-ppsspp` | Adreno-specific code is not valid for the generic Linux ARM64 target. | `post-sync.sh` applies the package-local exclusion patch and selects the ARM64 make target. |
 | `libretro-uae-git` | AArch64 is already supported by the source build but omitted from the recipe. | `post-sync.sh` extends the architecture declaration. |
-| `limine-mkinitcpio-hook` | The AUR recipe can compile on AArch64, but its installed runtime selects x86_64 UEFI filenames and discovers kernels only through Arch's `pkgbase` files. | A recipe patch carries a checksum-pinned runtime patch, while `post-sync.sh` restores that source patch after AUR synchronization. The runtime selects `BOOTAA64.EFI` and ARM bootloader filenames and accepts Arch Linux ARM kernel presets. |
+| `limine-mkinitcpio-hook` | Upstream 1.38 now selects the correct Limine UEFI binary on AArch64. Arch Linux ARM's generic kernel still uses the package name `linux-aarch64` and `/boot/Image`, while Limine expects an Arch-style kernel name and module-tree `vmlinuz`; its rEFInd probe also remains x64-specific. | The reduced recipe patch carries only those residual corrections: it maps the generic kernel to the stable `linux` entry and `/boot/Image`, passes that image explicitly to mkinitcpio, normalizes removal bookkeeping, and selects rEFInd's AA64 filename. `post-sync.sh` restores the checksum-pinned patch after AUR synchronization. |
 | `lmstudio-bin` | The vendor ships architecture-specific AppImages and includes its own release revision in the asset path. | `post-sync.sh` selects the ARM64 asset, computes its checksum during sync, and keeps the vendor revision separate from Omarchy's local `pkgrel` suffix. The generic auditor recursively opens the embedded SquashFS without executing the AppImage runtime. |
 | `omasnap` | The source build supports ARM64 but the recipe declaration is narrower. | `post-sync.sh` extends the architecture declaration. |
 | `qmk-hid` | The source build supports ARM64 but the recipe declaration is narrower. | `post-sync.sh` extends the architecture declaration. |

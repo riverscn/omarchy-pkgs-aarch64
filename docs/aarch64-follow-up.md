@@ -314,6 +314,10 @@ validation on the hardware the package is intended to enable.
 | `asusctl`, `dell-xps-touchpad-haptics`, `dell-xps13-sidecar-amps`, `intel-ipu7-camera`, `libfprint-git`, `macbook12-spi-driver-dkms`, `macbook8-spi-pxa2xx-nodma-dkms`, `supergfxctl`, `tuxedo-drivers-nocompatcheck-dkms` | These recipes carry enablement for specific x86 laptop platforms or devices. An architecture declaration alone would not demonstrate useful or safe ARM support. |
 | `linux-ptl` | This is an x86_64-only Panther Lake kernel variant and is already excluded from unscoped builds with `skip_build`. An ARM kernel must follow the target platform's supported kernel source and configuration instead. |
 | `t3code-patched-bin` | This is the x86_64 Omarchy-patched variant. The supported ARM path is the separately maintained `t3code-bin` source build; porting the patch stack should be reviewed independently. |
+| `python-mediapipe` | The recipe downloads and executes an x86_64 Bazel binary and depends on `python-tensorflow`; its native AArch64 toolchain and dependency closure have not been validated. |
+| `link-studio` | Its source is plausibly portable, but it requires the currently excluded `python-mediapipe` package. |
+| `omakade` | The Qt/CMake source recipe declares only x86_64. A clean native AArch64 build and payload audit are still required. |
+| `omapresent` | Upstream explicitly records AArch64 as plausible but unproven. Its Qt WebEngine build and payload have not yet passed native AArch64 validation. |
 
 The fork's two additional package bases and the exclusions above are therefore
 recorded as product or hardware policy decisions, not worked around in the

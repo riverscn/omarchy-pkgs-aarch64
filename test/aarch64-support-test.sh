@@ -438,9 +438,10 @@ for package in heroic-games-launcher-bin rustdesk voxtype-bin; do
   }
 done
 
-# Limine's AUR recipe already compiles on ARM but its installed shell runtime
-# assumes x86_64 UEFI filenames and Arch's /usr/lib/modules/*/pkgbase layout.
-# Keep the runtime correction package-local and make it survive every AUR sync.
+# Limine 1.38 gained native multi-architecture UEFI selection. The remaining
+# package-local correction maps Arch Linux ARM's generic kernel package to its
+# /boot/Image and stable `linux` entry name, and fixes rEFInd's AA64 filename.
+# Keep only that residual delta and make it survive every AUR sync.
 limine_dir="$ROOT/pkgbuilds/limine-mkinitcpio-hook"
 jq -e '.source == "aur"' "$limine_dir/.omarchy/package.json" >/dev/null || {
   echo 'Limine no longer follows its AUR source' >&2
@@ -463,8 +464,12 @@ grep -Fq "$limine_patch_sum" \
   echo 'Limine AUR synchronization would write a stale runtime patch checksum' >&2
   exit 1
 }
-for invariant in BOOTAA64.EFI 'etc/mkinitcpio.d/*.preset' is_supported_uefi_arch; do
-  grep -Fq "$invariant" "$limine_dir/limine-entry-tool-aarch64.patch" || {
+for invariant in \
+  'aarch64:linux-aarch64' \
+  'KERNEL_IMAGE=/boot/Image' \
+  '--kernelimage "$KERNEL_IMAGE"' \
+  'refind_$(limine_efi_arch'; do
+  grep -Fq -- "$invariant" "$limine_dir/limine-entry-tool-aarch64.patch" || {
     echo "Limine runtime patch lost AArch64 invariant: $invariant" >&2
     exit 1
   }
@@ -475,6 +480,10 @@ if grep -R -q 'LIMINE_FORCE_UEFI' "$limine_dir"; then
 fi
 grep -Eq '^pkgrel=[0-9]+\.2$' "$limine_dir/PKGBUILD" || {
   echo 'Limine runtime patch does not carry an Omarchy package revision' >&2
+  exit 1
+}
+grep -Fq '_pkgver=1.38.0' "$limine_dir/PKGBUILD" || {
+  echo 'Limine must retain the upstream release that absorbed generic AArch64 UEFI support' >&2
   exit 1
 }
 
@@ -638,7 +647,7 @@ settings_commit=$(sed -n "s/^_commit='\([^']*\)'/\1/p" "$ROOT/pkgbuilds/omarchy-
   exit 1
 }
 for development_package in omarchy-dev omarchy-settings-dev; do
-  grep -Fq 'git+https://github.com/riverscn/omarchy-aarch64.git#branch=aarch64-quattro' \
+  grep -Fq 'git+https://github.com/riverscn/omarchy-aarch64.git#branch=quattro' \
     "$ROOT/pkgbuilds/$development_package/PKGBUILD" || {
     echo "$development_package does not follow the adapted AArch64 quattro branch" >&2
     exit 1

@@ -14,12 +14,12 @@ mkdir -p "$metadata_work"
 mapfile -t upstream_packages < <(sed -E '/^[[:space:]]*(#|$)/d' "$scope")
 mapfile -t fork_packages < <(sed -E '/^[[:space:]]*(#|$)/d' "$fork_scope")
 packages=("${upstream_packages[@]}" "${fork_packages[@]}")
-[[ ${#upstream_packages[@]} -eq 116 ]] || {
-  echo "Expected the same 116 package bases as upstream edge; found ${#upstream_packages[@]}" >&2
+[[ ${#upstream_packages[@]} -eq 118 ]] || {
+  echo "Expected the reviewed 118-base upstream AArch64 edge scope; found ${#upstream_packages[@]}" >&2
   exit 1
 }
-[[ ${#packages[@]} -eq 118 ]] || {
-  echo "Expected 116 upstream edge package bases plus 2 fork additions; found ${#packages[@]}" >&2
+[[ ${#packages[@]} -eq 120 ]] || {
+  echo "Expected 118 upstream AArch64 bases plus 2 fork additions; found ${#packages[@]}" >&2
   exit 1
 }
 
@@ -32,10 +32,10 @@ assert_scope_count() {
   }
 }
 
-assert_scope_count scope edge 118
-assert_scope_count scope rc 116
-assert_scope_count scope stable 116
-assert_scope_count build-scope edge 118
+assert_scope_count scope edge 120
+assert_scope_count scope rc 118
+assert_scope_count scope stable 118
+assert_scope_count build-scope edge 120
 edge_scope_output=$("$ROOT/bin/github-release-aarch64" scope --channel edge)
 rc_scope_output=$("$ROOT/bin/github-release-aarch64" scope --channel rc)
 stable_scope_output=$("$ROOT/bin/github-release-aarch64" scope --channel stable)
@@ -165,7 +165,7 @@ derived_upstream_scope="$work/derived-upstream-edge-scope"
 printf '%s\n' "${upstream_packages[@]}" | sort -u > "$configured_upstream_scope"
 comm -23 "$actual_scope" <(printf '%s\n' "${fork_packages[@]}" | sort -u) > "$derived_upstream_scope"
 if ! diff -u "$configured_upstream_scope" "$derived_upstream_scope"; then
-  echo "Shared AArch64 range drifted from the 116-base upstream edge scope" >&2
+  echo "Shared AArch64 range drifted from the reviewed upstream edge scope" >&2
   exit 1
 fi
 

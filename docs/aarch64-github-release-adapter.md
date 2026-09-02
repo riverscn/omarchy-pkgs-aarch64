@@ -2,9 +2,9 @@
 
 ## Purpose
 
-This fork starts from the upstream-ready AArch64 support branch and keeps
-GitHub Actions as a storage and orchestration adapter around the normal Omarchy
-package tools.
+This fork integrates the upstream-ready AArch64 support changes on its
+canonical `master` branch and keeps GitHub Actions as a storage and
+orchestration adapter around the normal Omarchy package tools.
 
 It does not change the upstream release host, rclone destination, release-ring
 policy, or x86_64 workflow. Those remain the source design. The fork-specific
@@ -12,7 +12,7 @@ adapter exists because this repository publishes each signed rolling pacman
 channel as assets in a GitHub Release rather than as a complete filesystem tree
 on the upstream repository host.
 
-## Boundary with the upstream-ready branch
+## Boundary with the upstream-ready layer
 
 The following responsibilities remain in the shared package tooling:
 
@@ -47,6 +47,33 @@ not a second build path. Repository initialization also fails immediately if
 the empty local build database or its first pacman synchronization cannot be
 created, instead of repeating one setup failure for every package.
 
+## Branch contract
+
+This fork keeps the same long-lived package-repository branches as upstream:
+
+- `master` is the canonical integration and build-host branch. It follows
+  `upstream/master` and is the source of edge builds plus the normal fast-ring
+  builds for initialized rc and stable repositories. It does not mean the
+  stable channel.
+- `rc` is a standing release-control branch rebuilt from `master` when a
+  release candidate is cut. Its only intended difference is the pinned
+  `omarchy` and `omarchy-settings` candidate pair. A build from this branch is
+  the only one allowed to set `OMARCHY_RC_PINS=1`.
+
+`edge`, `rc`, and `stable` are signed repository/Release states. They are not
+three parallel development branches, and no `edge` or `stable` Git branch is
+maintained. Temporary `auto/*` branches belong to one synchronization pull
+request and are deleted after it is merged, closed, or superseded. Feature
+branches such as the upstream AArch64 contribution exist only for the lifetime
+of their pull request. Historical pre-migration commits are retained as
+immutable annotated `archive/*` tags instead of live backup branches.
+
+The generic AUR, upstream-release, and dependency-rebuild schedules remain
+owned by `omacom/omarchy-pkgs`. In this fork those workflows run only when a
+maintainer dispatches them explicitly; normal intake comes from reviewed
+`upstream/master` merges. This prevents both repositories from opening the
+same automated pull request while retaining a deliberate recovery/debug path.
+
 ## Channel model
 
 The adapter implements the same three channels and release rules as the shared
@@ -57,7 +84,7 @@ metadata.
 The package sources follow the same split. Stable and RC use the normal
 `omarchy`/`omarchy-settings` pair pinned to a reviewed AArch64-adapted commit;
 edge and dev use `omarchy-dev`/`omarchy-settings-dev` from the adapted
-`aarch64-quattro` branch. The adapter never packages an unmodified
+`quattro` branch. The adapter never packages an unmodified
 `basecamp/omarchy` checkout for AArch64, because that would discard the native
 Arch Linux ARM pacman configuration and channel mapping during a channel
 change.
@@ -75,9 +102,9 @@ the storage layout remains exactly `edge`, `rc`, and `stable`.
 
 | Channel | Managed tag | Client URL | Repository scope | Native build scope |
 | --- | --- | --- | ---: | ---: |
-| edge | `aarch64-edge` | `releases/download/aarch64-edge` | 118 bases | 118 bases |
-| rc | `aarch64-rc` | `releases/download/aarch64-rc` | 116 bases | metadata-derived fast ring, plus 2 pinned bases only from the `rc` branch |
-| stable | `aarch64-stable` | `releases/latest/download` or `releases/download/aarch64-stable` | 116 bases | metadata-derived fast ring |
+| edge | `aarch64-edge` | `releases/download/aarch64-edge` | 120 bases | 120 bases |
+| rc | `aarch64-rc` | `releases/download/aarch64-rc` | 118 bases | metadata-derived fast ring, plus 2 pinned bases only from the `rc` branch |
+| stable | `aarch64-stable` | `releases/latest/download` or `releases/download/aarch64-stable` | 118 bases | metadata-derived fast ring |
 
 The scope is derived from the same `channels`, `release_ring`, and `pinned`
 metadata functions used by `bin/repo`. Normal packages are built in edge and
@@ -133,7 +160,7 @@ but is not required for acceptance:
    only a full-rebuild marker. It does not call the GitHub Release API, download
    a database, or copy baseline checksums.
 2. With no final database available for version comparison, the regular
-   builder selects every one of the 118 scoped package bases. Dependencies built
+   builder selects every one of the 120 scoped package bases. Dependencies built
    earlier in the run are resolved through its normal local build database;
    distribution dependencies still come from the native Arch Linux ARM repos.
 3. Repository preparation receives no remote Omarchy package server. It
@@ -188,10 +215,10 @@ remain a separate follow-up rather than being hidden in the release adapter.
 
 ## Package scope
 
-The adapter configures 118 package bases from two deliberately separate manifests:
+The adapter configures 120 package bases from two deliberately separate manifests:
 
-- `config/aarch64-packages` is the complete 116-base range that the
-  upstream-ready tree selects for an `edge/aarch64` build, including the two
+- `config/aarch64-packages` is the reviewed 118-base range that the shared
+  AArch64 layer selects for an `edge/aarch64` build, including the two
   edge-only development packages;
 - `config/aarch64-fork-packages` appends only the two explicit fork packages
   below.
@@ -202,24 +229,24 @@ The two fork-only packages remain explicit in
 - `omarchy-aarch64-keyring` distributes this repository's public signing key;
 - `omarchy-spice-guest-tools` is a fork-owned guest integration package.
 
-The test suite requires the upstream-aligned manifest to contain 116 unique
+The test suite requires the upstream-aligned manifest to contain 118 unique
 bases and the fork overlay to contain exactly the two reviewed additions. It
 also independently derives the complete `edge/aarch64` set from package
 metadata, requires it to match the combined manifests, and checks that removing
 the overlay yields the upstream-aligned manifest exactly. Finally, it generates
 `.SRCINFO` with `CARCH=aarch64` for every scoped base and requires the derived
-edge, rc, and stable repository scopes to remain 118/116/116, requires the edge
+edge, rc, and stable repository scopes to remain 120/118/118, requires the edge
 build scope to equal its complete repository scope, and requires rc and stable
 to derive the same fast-ring set from current metadata. An RC-branch build must
 add exactly the two pinned bases. Upstream package additions, removals, ring or
 channel changes, or accidental fork-only additions cannot drift silently.
 
 The integration also carries forward the current fork's newer package state
-where the upstream-ready branch alone would be a downgrade:
+where the shared upstream contribution alone would be a downgrade:
 
 - the fork source revisions of the paired `omarchy` and `omarchy-settings`;
 - the published Limine package revision floor; its AArch64 UEFI/runtime patch
-  and sync hook now live in the upstream-ready branch;
+  and sync hook are maintained in the shared AArch64 layer;
 - the published rebuild revisions for `tensaku` and `tzupdate`;
 - T3 Code 0.0.37, updated through the shared upstream-sync mechanism while
   retaining both the existing x86_64 AppImage and native AArch64 source build.
@@ -330,7 +357,7 @@ Do not change a production channel based only on static tests:
    `bin/github-release-aarch64 full-rebuild`. Confirm that seeding reports an
    empty, non-publishable repository and that no emulation setup appears.
 3. Inspect the generated local evidence. Confirm the manifest reports
-   `validation_mode=full`, 118 package bases, and the expected signing
+   `validation_mode=full`, 120 package bases, and the expected signing
    fingerprint; confirm the audit covers every filename in the database.
 4. Inspect the build logs for the complete package selection and successful
    `pacman -Sp` validation. Any wrong-architecture archive or ELF would have

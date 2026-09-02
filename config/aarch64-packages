@@ -12,6 +12,7 @@ gradle
 pandoc-cli
 gtk2
 gtk-engine-murrine
+python-sounddevice
 omarchy-keyring
 
 # Omarchy runtime
@@ -99,6 +100,7 @@ omatrack
 once-bin
 openai-codex-bin
 openai-codex-desktop
+perplexity
 quickshell-git
 rustdesk
 sublime-text-4
