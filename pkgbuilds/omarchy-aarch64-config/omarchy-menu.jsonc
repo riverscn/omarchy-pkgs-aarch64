@@ -1,0 +1,29 @@
+{
+  // Optional hardware features omitted by the generic AArch64 VM profile.
+  // Every descendant carries its own guard so global menu search cannot expose
+  // a child whose parent is hidden.
+  "trigger.capture.screenrecord.stop": {"when":"omarchy-cmd-present gpu-screen-recorder"},
+  "trigger.capture.screenrecord": {"when":"omarchy-cmd-present gpu-screen-recorder"},
+  "trigger.capture.screenrecord.no-audio": {"when":"omarchy-cmd-present gpu-screen-recorder"},
+  "trigger.capture.screenrecord.desktop-audio": {"when":"omarchy-cmd-present gpu-screen-recorder"},
+  "trigger.capture.screenrecord.microphone": {"when":"omarchy-cmd-present gpu-screen-recorder"},
+  "trigger.capture.screenrecord.webcam": {"when":"omarchy-cmd-present gpu-screen-recorder && omarchy-hw-webcam"},
+  "trigger.toggle.nightlight": {"when":"omarchy-cmd-present hyprsunset"},
+  "setup.config.hyprsunset": {"when":"omarchy-cmd-present hyprsunset"},
+  "update.process.hyprsunset": {"when":"omarchy-cmd-present hyprsunset"},
+  "update.config.hyprsunset": {"when":"omarchy-cmd-present hyprsunset"},
+  "update.hardware.bluetooth": {"when":"omarchy-cmd-present bluetoothctl"},
+
+  // These curated installers currently consume x86_64-only packages or an x86
+  // guest/runtime stack. Generic package and AUR installation remain available
+  // for users who deliberately provide their own alternative implementation.
+  "install.windows": {"when":"[[ $(uname -m) == \"x86_64\" ]]"},
+  "install.browser.edge": {"when":"[[ $(uname -m) == \"x86_64\" ]] && ! omarchy-pkg-present microsoft-edge-stable-bin"},
+  "install.service.dropbox": {"when":"[[ $(uname -m) == \"x86_64\" ]] && ! omarchy-pkg-present dropbox"},
+  "install.service.spotify": {"when":"[[ $(uname -m) == \"x86_64\" ]] && ! omarchy-pkg-present spotify"},
+  "install.gaming.steam": {"when":"[[ $(uname -m) == \"x86_64\" ]] && ! omarchy-pkg-present steam"},
+  "install.gaming.minecraft": {"when":"[[ $(uname -m) == \"x86_64\" ]] && ! omarchy-pkg-present minecraft-launcher"},
+  "install.gaming.geforce-now": {"when":"[[ $(uname -m) == \"x86_64\" ]] && ! flatpak info com.nvidia.geforcenow"},
+  "install.gaming.battlenet": {"when":"[[ $(uname -m) == \"x86_64\" ]] && [[ ! -d $HOME/Games/battlenet ]]"},
+  "install.gaming.lutris": {"when":"[[ $(uname -m) == \"x86_64\" ]] && ! omarchy-pkg-present lutris"}
+}

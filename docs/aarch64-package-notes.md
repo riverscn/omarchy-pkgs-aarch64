@@ -30,9 +30,9 @@ each exception can be reviewed, updated, or removed with its package.
 
 ## Current upstream-delta audit
 
-The package deltas were re-audited on 2026-08-31 against
-`omacom-io/omarchy-pkgs` commit `28a4cfc6626801398b5748e0793509f5a19f6aeb`
-(the current master, two commits after the Omarchy 4.0.2 release). The review covered every package directory changed
+The package deltas were re-audited through 2026-09-03 against
+`omacom-io/omarchy-pkgs` commit `b0cba5bf8b53f0c6c3387ce6054451131d280ac9`.
+The review covered every package directory changed
 relative to that revision, not only the packages that had failed an earlier
 build. Current AUR heads were also checked for every changed or added
 AUR-backed recipe. Updated recipes were synchronized before re-running the
@@ -56,9 +56,10 @@ justification:
   of retaining the previous `4.0.1.r...` fork revision.
 - The stable `omarchy-settings` recipe preserves upstream's staging of
   `/etc/cups/cups-files.conf` under `/usr/share/omarchy/etc-overrides` instead
-  of owning the live path already provided by Arch's `cups` package. The
-  synchronized stable runtime pair uses `pkgrel=2` so this packaging correction
-  upgrades any earlier `4.0.2-1` build.
+  of owning the live path already provided by Arch's `cups` package. That
+  correction shipped as `4.0.2-2`; the synchronized runtime pair now uses
+  `4.0.2-3` and pins immutable source tag `v4.0.2-aarch64.2` so the managed
+  AArch64 profile and migration reach existing stable users.
 - `github-copilot-cli` dropped its stale `pkgrel` suffix metadata when its AUR
   `pkgver` advanced. The ordinary local `.1` rebuild suffix is sufficient for
   the new version.
@@ -135,9 +136,12 @@ metadata places it in the fast ring. It therefore enters the shared AArch64
 scope unchanged; no architecture patch or audit exception is required.
 
 The shared AArch64 scope retains the 20 reviewed coverage additions selected
-during the original alignment. `omarchy-aarch64-keyring` and
-`omarchy-spice-guest-tools` remain separately identified downstream additions;
-they are not presented as general architecture enablement.
+during the original alignment. `omarchy-aarch64-keyring`,
+`omarchy-aarch64-config`, and `omarchy-spice-guest-tools` remain separately
+identified downstream additions; they are not presented as general
+architecture enablement. The config package carries upgradeable VM-profile
+policy so menu, shell, keybinding, and reinstall behavior do not freeze at the
+image's creation date.
 
 All 20 shared additions remain absent from the audited upstream 4.0.2 tree, so
 none has become a duplicate that can simply be removed. They do not all have

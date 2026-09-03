@@ -4,4 +4,5 @@
 # and requires the remainder to match the upstream edge AArch64 range.
 
 omarchy-aarch64-keyring
+omarchy-aarch64-config
 omarchy-spice-guest-tools

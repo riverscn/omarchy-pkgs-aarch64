@@ -18,8 +18,8 @@ packages=("${upstream_packages[@]}" "${fork_packages[@]}")
   echo "Expected the reviewed 118-base upstream AArch64 edge scope; found ${#upstream_packages[@]}" >&2
   exit 1
 }
-[[ ${#packages[@]} -eq 120 ]] || {
-  echo "Expected 118 upstream AArch64 bases plus 2 fork additions; found ${#packages[@]}" >&2
+[[ ${#packages[@]} -eq 121 ]] || {
+  echo "Expected 118 upstream AArch64 bases plus 3 fork additions; found ${#packages[@]}" >&2
   exit 1
 }
 
@@ -32,14 +32,14 @@ assert_scope_count() {
   }
 }
 
-assert_scope_count scope edge 120
-assert_scope_count scope rc 118
-assert_scope_count scope stable 118
-assert_scope_count build-scope edge 120
+assert_scope_count scope edge 121
+assert_scope_count scope rc 119
+assert_scope_count scope stable 119
+assert_scope_count build-scope edge 121
 
 # A staged release must retain the review boundary between the upstream-aligned
-# scope and the fork-only overlay. A combined 120-entry file produces the same
-# repository but loses the evidence that only two package bases are downstream.
+# scope and the fork-only overlay. A combined 121-entry file produces the same
+# repository but loses the evidence that only three package bases are downstream.
 adapter_root="$work/adapter-root"
 mkdir -p "$adapter_root/bin"
 cp "$ROOT/bin/github-release-aarch64" "$adapter_root/bin/"
@@ -130,8 +130,8 @@ if "$ROOT/bin/github-release-aarch64" seed --channel rc --no-baseline \
   exit 1
 fi
 grep -Fq 'zero-baseline validation applies only to edge' "$work/rc-full.out"
-[[ ${#fork_packages[@]} -eq 2 ]] || {
-  echo "Expected exactly 2 explicit fork package bases; found ${#fork_packages[@]}" >&2
+[[ ${#fork_packages[@]} -eq 3 ]] || {
+  echo "Expected exactly 3 explicit fork package bases; found ${#fork_packages[@]}" >&2
   exit 1
 }
 [[ $(printf '%s\n' "${packages[@]}" | sort -u | wc -l) -eq ${#packages[@]} ]] || {
@@ -142,7 +142,7 @@ grep -Fq 'zero-baseline validation applies only to edge' "$work/rc-full.out"
   echo "AArch64 fork package overlay contains duplicates" >&2
   exit 1
 }
-for required in omarchy-aarch64-keyring omarchy-spice-guest-tools libretro-blastem; do
+for required in omarchy-aarch64-keyring omarchy-aarch64-config omarchy-spice-guest-tools libretro-blastem; do
   printf '%s\n' "${packages[@]}" | grep -Fxq "$required" || {
     echo "AArch64 package scope lost required package base: $required" >&2
     exit 1
@@ -155,14 +155,14 @@ for package in "${fork_packages[@]}"; do
   fi
 done
 printf '%s\n' "${fork_packages[@]}" | sort -u | diff -u \
-  <(printf '%s\n' omarchy-aarch64-keyring omarchy-spice-guest-tools | sort -u) - || {
+  <(printf '%s\n' omarchy-aarch64-keyring omarchy-aarch64-config omarchy-spice-guest-tools | sort -u) - || {
   echo "Fork package overlay contains an unreviewed package base" >&2
   exit 1
 }
 
 # The checked-in manifest is an intentionally reviewed snapshot, but it must
 # not drift from the package/channel/architecture rules inherited from
-# upstream. The rolling adapter builds the same edge range as upstream; its two
+# upstream. The rolling adapter builds the same edge range as upstream; its three
 # fork packages participate through the same metadata rules as every upstream
 # package and are tracked separately above.
 expected_scope="$work/expected-edge-scope"

@@ -102,9 +102,9 @@ the storage layout remains exactly `edge`, `rc`, and `stable`.
 
 | Channel | Managed tag | Client URL | Repository scope | Native build scope |
 | --- | --- | --- | ---: | ---: |
-| edge | `aarch64-edge` | `releases/download/aarch64-edge` | 120 bases | 120 bases |
-| rc | `aarch64-rc` | `releases/download/aarch64-rc` | 118 bases | metadata-derived fast ring, plus 2 pinned bases only from the `rc` branch |
-| stable | `aarch64-stable` | `releases/latest/download` or `releases/download/aarch64-stable` | 118 bases | metadata-derived fast ring |
+| edge | `aarch64-edge` | `releases/download/aarch64-edge` | 121 bases | 121 bases |
+| rc | `aarch64-rc` | `releases/download/aarch64-rc` | 119 bases | metadata-derived fast ring, plus 2 pinned bases only from the `rc` branch |
+| stable | `aarch64-stable` | `releases/download/aarch64-stable` | 119 bases | metadata-derived fast ring |
 
 The scope is derived from the same `channels`, `release_ring`, and `pinned`
 metadata functions used by `bin/repo`. Normal packages are built in edge and
@@ -160,7 +160,7 @@ but is not required for acceptance:
    only a full-rebuild marker. It does not call the GitHub Release API, download
    a database, or copy baseline checksums.
 2. With no final database available for version comparison, the regular
-   builder selects every one of the 120 scoped package bases. Dependencies built
+   builder selects every one of the 121 scoped package bases. Dependencies built
    earlier in the run are resolved through its normal local build database;
    distribution dependencies still come from the native Arch Linux ARM repos.
 3. Repository preparation receives no remote Omarchy package server. It
@@ -215,27 +215,29 @@ remain a separate follow-up rather than being hidden in the release adapter.
 
 ## Package scope
 
-The adapter configures 120 package bases from two deliberately separate manifests:
+The adapter configures 121 package bases from two deliberately separate manifests:
 
 - `config/aarch64-packages` is the reviewed 118-base range that the shared
   AArch64 layer selects for an `edge/aarch64` build, including the two
   edge-only development packages;
-- `config/aarch64-fork-packages` appends only the two explicit fork packages
+- `config/aarch64-fork-packages` appends only the three explicit fork packages
   below.
 
-The two fork-only packages remain explicit in
+The three fork-only packages remain explicit in
 `config/aarch64-fork-packages`:
 
 - `omarchy-aarch64-keyring` distributes this repository's public signing key;
+- `omarchy-aarch64-config` distributes the upgradeable generic-VM runtime
+  profile without changing the shared upstream package scope;
 - `omarchy-spice-guest-tools` is a fork-owned guest integration package.
 
 The test suite requires the upstream-aligned manifest to contain 118 unique
-bases and the fork overlay to contain exactly the two reviewed additions. It
+bases and the fork overlay to contain exactly the three reviewed additions. It
 also independently derives the complete `edge/aarch64` set from package
 metadata, requires it to match the combined manifests, and checks that removing
 the overlay yields the upstream-aligned manifest exactly. Finally, it generates
 `.SRCINFO` with `CARCH=aarch64` for every scoped base and requires the derived
-edge, rc, and stable repository scopes to remain 120/118/118, requires the edge
+edge, rc, and stable repository scopes to remain 121/119/119, requires the edge
 build scope to equal its complete repository scope, and requires rc and stable
 to derive the same fast-ring set from current metadata. An RC-branch build must
 add exactly the two pinned bases. Upstream package additions, removals, ring or
@@ -357,7 +359,7 @@ Do not change a production channel based only on static tests:
    `bin/github-release-aarch64 full-rebuild`. Confirm that seeding reports an
    empty, non-publishable repository and that no emulation setup appears.
 3. Inspect the generated local evidence. Confirm the manifest reports
-   `validation_mode=full`, 120 package bases, and the expected signing
+   `validation_mode=full`, 121 package bases, and the expected signing
    fingerprint; confirm the audit covers every filename in the database.
 4. Inspect the build logs for the complete package selection and successful
    `pacman -Sp` validation. Any wrong-architecture archive or ELF would have

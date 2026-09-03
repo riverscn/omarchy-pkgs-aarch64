@@ -1,0 +1,18 @@
+# Hardware-specific, unsupported, or deliberately omitted desktop packages.
+asdcontrol
+bluez
+bluez-tools
+bluez-utils
+bolt
+brightnessctl
+ddcutil
+gpu-screen-recorder
+hyprland-preview-share-picker
+hyprsunset
+kdenlive
+libreoffice-fresh
+moonlight-qt
+obs-studio
+power-profiles-daemon
+qemu-user-static-binfmt
+wireless-regdb

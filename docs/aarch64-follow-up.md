@@ -329,12 +329,14 @@ so it should be reviewed separately from package compatibility.
 The following sections are proposals, not descriptions of functionality
 implemented by this branch.
 
-Two fork-only package bases are also deliberately excluded. A separate
+Three fork-only package bases are also deliberately excluded. A separate
 `omarchy-aarch64-keyring` would split the repository trust model, while this
 proposal uses the existing production key and `omarchy-keyring`. Likewise,
 `omarchy-spice-guest-tools` is guest-VM integration rather than architecture
-enablement; it should be proposed as an independent package, with its runtime
-and default-install policy reviewed separately.
+enablement, and `omarchy-aarch64-config` is downstream runtime policy for that
+VM image rather than a package build capability. They should be proposed as
+independent packages, with their runtime and default-install policy reviewed
+separately.
 
 ## Known package exclusions
 
