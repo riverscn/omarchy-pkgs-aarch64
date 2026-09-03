@@ -1,0 +1,4 @@
+# Packages without a validated native runtime for this profile.
+gpu-screen-recorder
+obs-studio
+qemu-user-static-binfmt

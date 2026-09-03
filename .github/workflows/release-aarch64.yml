@@ -1,0 +1,221 @@
+name: Publish AArch64 channel repositories
+
+on:
+  push:
+    branches: [master, rc]
+    paths:
+      - .github/workflows/release-aarch64.yml
+      - bin/**
+      - build/**
+      - config/aarch64-*
+      - helpers/**
+      - pkgbuilds/**
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Release one channel or advance the release train
+        required: true
+        type: choice
+        default: release
+        options:
+          - release
+          - bootstrap-rc
+          - advance-edge-rc
+          - advance-rc-stable
+      channel:
+        description: Channel used by the release operation
+        required: true
+        type: choice
+        default: edge
+        options:
+          - edge
+          - rc
+          - stable
+      full_rebuild:
+        description: Ignore the edge Release and validate the complete scope
+        required: true
+        type: boolean
+        default: false
+      publish:
+        description: Publish after an incremental channel build
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+# This mirrors the upstream host-wide release lock: channel snapshots may not
+# be mutated by two workflow runs at once. Matrix jobs inside one push run use
+# independent tags and workspaces and may execute together.
+concurrency:
+  group: aarch64-release-train
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event_name == 'push' || inputs.operation == 'release'
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: ${{ fromJSON(github.event_name == 'push' && github.ref_name == 'rc' && '["rc"]' || github.event_name == 'push' && '["edge","rc","stable"]' || format('["{0}"]', inputs.channel)) }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 360
+    environment: release
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check channel readiness
+        id: readiness
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ matrix.channel }}
+        run: |
+          set -euo pipefail
+          if [[ "$CHANNEL" == edge ]] || gh release view "aarch64-$CHANNEL" >/dev/null 2>&1; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == workflow_dispatch ]]; then
+            echo "aarch64-$CHANNEL is not initialized; advance the release train first." >&2
+            exit 1
+          else
+            echo "aarch64-$CHANNEL is not initialized; skipping its automatic build."
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate release adapter
+        if: steps.readiness.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          bash -n \
+            bin/github-release-aarch64 \
+            bin/normalize-github-release-packages \
+            bin/publish-github-release \
+            build/github-release-prepare.sh
+          bin/github-release-aarch64 scope --channel "${{ matrix.channel }}" >/dev/null
+          bin/github-release-aarch64 build-scope --channel "${{ matrix.channel }}" >/dev/null
+
+      - name: Reject invalid full rebuild
+        if: steps.readiness.outputs.enabled == 'true' && github.event_name == 'workflow_dispatch' && inputs.full_rebuild && (inputs.publish || matrix.channel != 'edge')
+        run: |
+          echo "A zero-baseline rebuild is edge-only, validation-only, and cannot be published." >&2
+          exit 1
+
+      - name: Seed current repository metadata
+        if: steps.readiness.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "${{ github.event_name }}" == workflow_dispatch && "${{ inputs.full_rebuild }}" == true ]]; then
+            bin/github-release-aarch64 seed --channel edge --no-baseline
+          else
+            bin/github-release-aarch64 seed --channel "${{ matrix.channel }}"
+          fi
+
+      - name: Build changed packages
+        if: steps.readiness.outputs.enabled == 'true'
+        env:
+          OMARCHY_RC_PINS: ${{ github.ref_name == 'rc' && '1' || '' }}
+        run: bin/github-release-aarch64 build --channel "${{ matrix.channel }}"
+
+      - name: Prepare and validate signed repository
+        if: steps.readiness.outputs.enabled == 'true'
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.AARCH64_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.AARCH64_GPG_PASSPHRASE }}
+        run: bin/github-release-aarch64 prepare --channel "${{ matrix.channel }}"
+
+      - name: Upload repository validation evidence
+        if: steps.readiness.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: aarch64-${{ matrix.channel }}-repository-evidence-${{ github.run_id }}
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            pkgs.omarchy.org/${{ matrix.channel }}/aarch64/omarchy.db
+            pkgs.omarchy.org/${{ matrix.channel }}/aarch64/omarchy.db.sig
+            pkgs.omarchy.org/${{ matrix.channel }}/aarch64/omarchy.db.tar.zst
+            pkgs.omarchy.org/${{ matrix.channel }}/aarch64/omarchy.db.tar.zst.sig
+            pkgs.omarchy.org/${{ matrix.channel }}/aarch64/omarchy.files
+            pkgs.omarchy.org/${{ matrix.channel }}/aarch64/omarchy.files.sig
+            pkgs.omarchy.org/${{ matrix.channel }}/aarch64/omarchy.files.tar.zst
+            pkgs.omarchy.org/${{ matrix.channel }}/aarch64/omarchy.files.tar.zst.sig
+            pkgs.omarchy.org/${{ matrix.channel }}/aarch64/omarchy-aarch64.gpg
+            pkgs.omarchy.org/${{ matrix.channel }}/aarch64/repository-build-audit.json
+            pkgs.omarchy.org/${{ matrix.channel }}/aarch64/repository-manifest.json
+            pkgs.omarchy.org/${{ matrix.channel }}/aarch64/SHA256SUMS
+
+      - name: Upload build logs
+        if: always() && steps.readiness.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: aarch64-${{ matrix.channel }}-build-logs-${{ github.run_id }}
+          retention-days: 14
+          if-no-files-found: warn
+          path: logs/*.log
+
+      - name: Publish rolling repository
+        if: steps.readiness.outputs.enabled == 'true' && (github.event_name == 'push' || (inputs.publish && inputs.full_rebuild == false))
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bin/github-release-aarch64 publish --channel "${{ matrix.channel }}"
+
+  advance:
+    if: github.event_name == 'workflow_dispatch' && inputs.operation != 'release'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 360
+    environment: release
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Advance AArch64 release train
+        id: advance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GPG_PRIVATE_KEY: ${{ secrets.AARCH64_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.AARCH64_GPG_PASSPHRASE }}
+          OPERATION: ${{ inputs.operation }}
+        run: |
+          set -euo pipefail
+          case "$OPERATION" in
+            bootstrap-rc)
+              echo 'channel=rc' >> "$GITHUB_OUTPUT"
+              bin/github-release-aarch64 advance --from stable --to rc --bootstrap
+              ;;
+            advance-edge-rc)
+              echo 'channel=rc' >> "$GITHUB_OUTPUT"
+              bin/github-release-aarch64 advance --from edge --to rc
+              ;;
+            advance-rc-stable)
+              echo 'channel=stable' >> "$GITHUB_OUTPUT"
+              bin/github-release-aarch64 advance --from rc --to stable
+              ;;
+            *)
+              echo "Unsupported advance operation: $OPERATION" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Upload advancement evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aarch64-${{ steps.advance.outputs.channel }}-advance-evidence-${{ github.run_id }}
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            pkgs.omarchy.org/${{ steps.advance.outputs.channel }}/aarch64/repository-build-audit.json
+            pkgs.omarchy.org/${{ steps.advance.outputs.channel }}/aarch64/repository-manifest.json
+            pkgs.omarchy.org/${{ steps.advance.outputs.channel }}/aarch64/SHA256SUMS

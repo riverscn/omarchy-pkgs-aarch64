@@ -10,13 +10,13 @@
 #    provenance only (empty when cut from a bare commit). omarchy and
 #    omarchy-settings must always carry identical _tag/_commit/pkgver/sha256sums.
 pkgname='omarchy'
-_tag=''
-_commit='346e69e1cec6c4e8924531874af6ba010a1bc99e'
+_tag='v4.0.2-aarch64.3'
+_commit='f38d909b38e4fc34d1853daf11039e2fbb96ead7'
 pkgver=4.0.2
-pkgrel=1
+pkgrel=4
 pkgdesc='Beautiful, modern, and opinionated Arch Linux by DHH'
 arch=('any')
-url='https://github.com/basecamp/omarchy'
+url='https://github.com/riverscn/omarchy-aarch64'
 license=('MIT')
 conflicts=('omarchy-dev')
 # Hard depends: only packages whose removal would brick the desktop. The ISO
@@ -24,6 +24,7 @@ conflicts=('omarchy-dev')
 depends=(
   # Omarchy meta
   'omarchy-keyring'
+  'omarchy-aarch64-keyring'
   # Exact-version pin: omarchy-settings-dev `provides=omarchy-settings`
   # (unversioned), and an unversioned dependency here would let the dev
   # package satisfy it, leaving a mixed dev/stable install. A versioned
@@ -79,8 +80,8 @@ if [[ -n "${OMARCHY_SRC:-}" ]]; then
   source=()
   sha256sums=()
 else
-  source=("omarchy::git+https://github.com/basecamp/omarchy.git#commit=${_commit}")
-  sha256sums=('ed1ca61045f73e313c3e73874d324945e2b5357e6510664eab25783b26138197')
+  source=("omarchy::git+https://github.com/riverscn/omarchy-aarch64.git#commit=${_commit}")
+  sha256sums=('785ac96dd1de1543f3a6f24fde25fb51143a3c957d2bcb8cb1f3b27ac04ebdfb')
 fi
 
 prepare() {
