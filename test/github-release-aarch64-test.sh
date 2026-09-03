@@ -89,6 +89,21 @@ diff -u \
   echo "The RC branch build is not exactly the fast ring plus its two pinned packages" >&2
   exit 1
 }
+# Perplexity's official pool rejects repeated downloads from GitHub-hosted
+# runners. Its prebuilt, audited edge archive must therefore move through the
+# normal release train instead of being downloaded again in every fast ring.
+for channel_scope in "$edge_scope_output" "$rc_scope_output" "$stable_scope_output"; do
+  grep -Fxq perplexity <<< "$channel_scope" || {
+    echo "Perplexity is missing from an AArch64 repository channel" >&2
+    exit 1
+  }
+done
+grep -Fxq perplexity <<< "$edge_build_output"
+if grep -Fxq perplexity <<< "$rc_build_output" ||
+  grep -Fxq perplexity <<< "$stable_build_output"; then
+  echo "Perplexity unexpectedly re-entered the GitHub fast ring" >&2
+  exit 1
+fi
 for development_package in omarchy-dev omarchy-settings-dev; do
   grep -Fxq "$development_package" <<< "$edge_scope_output"
   if grep -Fxq "$development_package" <<< "$rc_scope_output"; then
