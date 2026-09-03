@@ -349,8 +349,11 @@ combined unpublished snapshot, while the one-time bootstrap retains its
 stable baseline until the first regular RC build. If stable and edge contain a
 forwardable package with the same versioned filename but
 different independently built bytes, only the unpublished staged copy may be
-replaced; an existing target Release asset remains immutable and a different
-digest still fails closed.
+replaced. An existing target Release asset remains authoritative for that
+version: advancement retains it, reports the non-identical source artifact,
+and subjects the retained target archive to the final full repository audit.
+Changing that payload requires a `pkgrel` or `pkgver` bump; the adapter never
+deletes and re-uploads a published filename.
 
 The initial fork rollout is deliberate: retain the already validated
 `aarch64-stable`, publish the first `aarch64-edge`, update the legacy stable

@@ -469,7 +469,7 @@ stage_advance() (
   local source_tag source_work entry_map name base filename key package_dir
   local source_hash source_sig_hash target_hash target_sig_hash local_hash local_sig_hash
   local staged staged_info staged_name staged_filename
-  local copied=0 present=0 replaced=0 skipped=0 asset
+  local copied=0 present=0 retained=0 replaced=0 skipped=0 asset
   local -a download_args=()
   source_tag=${SOURCE_RELEASE_TAG:-"aarch64-$FROM_CHANNEL"}
   source_work=$(mktemp -d)
@@ -550,8 +550,8 @@ stage_advance() (
     # unpublished target workspace. A forwardable package built separately in
     # stable and edge may legitimately have the same versioned filename but
     # different bytes; replace only the unpublished copy. Once that filename
-    # exists in the target baseline, the immutable-asset check below still
-    # refuses different bytes.
+    # exists in the target baseline it is immutable and authoritative for that
+    # version.
     if [[ -e $REPO_DIR/$filename || -e $REPO_DIR/$filename.sig ]]; then
       [[ -f $REPO_DIR/$filename && -f $REPO_DIR/$filename.sig ]] || {
         echo "ERROR: staged package or signature is incomplete: $filename" >&2
@@ -573,11 +573,20 @@ stage_advance() (
     fi
 
     if [[ -n $target_hash || -n $target_sig_hash ]]; then
-      [[ $target_hash == "$source_hash" && $target_sig_hash == "$source_sig_hash" ]] || {
-        echo "ERROR: $filename or its signature already exists in $TO_CHANNEL with different bytes" >&2
+      [[ -n $target_hash && -n $target_sig_hash ]] || {
+        echo "ERROR: target checksum manifest is incomplete for $filename" >&2
         return 1
       }
-      ((present += 1))
+      if [[ $target_hash == "$source_hash" && $target_sig_hash == "$source_sig_hash" ]]; then
+        ((present += 1))
+      else
+        # GitHub Release assets and package-manager caches are immutable by
+        # versioned filename. A separately built target artifact with the same
+        # package version stays in place and is re-audited with the final
+        # snapshot; changing its payload requires a pkgrel/pkgver bump.
+        echo "Retaining immutable $TO_CHANNEL asset with the same package version: $filename" >&2
+        ((retained += 1))
+      fi
       continue
     fi
 
@@ -611,7 +620,7 @@ stage_advance() (
     }
   done
 
-  echo "Staged $copied package(s) for $FROM_CHANNEL -> $TO_CHANNEL; $present already present, $replaced superseded, $skipped not moved."
+  echo "Staged $copied package(s) for $FROM_CHANNEL -> $TO_CHANNEL; $present byte-identical, $retained immutable target versions retained, $replaced superseded, $skipped not moved."
 )
 
 run_advance() {

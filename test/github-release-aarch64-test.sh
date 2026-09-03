@@ -379,6 +379,16 @@ grep -Fq 'replace only the unpublished copy' \
   echo "Chained RC bootstrap does not distinguish unpublished and immutable assets" >&2
   exit 1
 }
+grep -Fq 'Retaining immutable $TO_CHANNEL asset with the same package version' \
+  "$ROOT/bin/github-release-aarch64" || {
+  echo "Advancement cannot retain an already published versioned target asset" >&2
+  exit 1
+}
+grep -Fq 'changing its payload requires a pkgrel/pkgver bump' \
+  "$ROOT/bin/github-release-aarch64" || {
+  echo "Immutable target retention does not require a version bump for changed payloads" >&2
+  exit 1
+}
 grep -Fq 'multiple staged versions found for package' \
   "$ROOT/bin/github-release-aarch64" || {
   echo "Chained RC bootstrap does not reject ambiguous staged package versions" >&2
