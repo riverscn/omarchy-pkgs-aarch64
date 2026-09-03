@@ -132,9 +132,16 @@ historical package count equal to x86_64.
 
 Upstream commit `22e908d831f1e3b494abd018f14f9a66e942d5af` adds
 `perplexity`. Its vendor repository publishes matching amd64 and arm64 Debian
-packages, the recipe pins independent checksums for both, and its package
-metadata places it in the fast ring. It therefore enters the shared AArch64
-scope unchanged; no architecture patch or audit exception is required.
+packages and the recipe pins independent checksums for both. The package needs
+no architecture patch or audit exception. The downstream GitHub Release
+adapter does, however, remove it from the fast ring: repeated native GitHub ARM
+runner requests to the official pool returned HTTP 403, while the same pinned
+URL downloaded and passed checksum, packaging, and recursive payload audit on
+the native release host. Because this recipe only repackages the vendor's
+prebuilt application, the already signed edge archive is advanced unchanged
+through RC and stable instead of downloading the same Debian archive again in
+each channel. This is a release-environment exception, not an AArch64 payload
+exception, and can be dropped if the vendor permits GitHub-hosted runners.
 
 The shared AArch64 scope retains the 20 reviewed coverage additions selected
 during the original alignment. `omarchy-aarch64-keyring`,
