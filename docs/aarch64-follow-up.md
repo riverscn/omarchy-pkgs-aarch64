@@ -329,12 +329,14 @@ so it should be reviewed separately from package compatibility.
 The following sections are proposals, not descriptions of functionality
 implemented by this branch.
 
-Two fork-only package bases are also deliberately excluded. A separate
+Three fork-only package bases are also deliberately excluded. A separate
 `omarchy-aarch64-keyring` would split the repository trust model, while this
 proposal uses the existing production key and `omarchy-keyring`. Likewise,
 `omarchy-spice-guest-tools` is guest-VM integration rather than architecture
-enablement; it should be proposed as an independent package, with its runtime
-and default-install policy reviewed separately.
+enablement, and `omarchy-aarch64-config` is downstream package-selection policy
+for that VM image rather than a package build capability. It does not alter the
+upstream menu, shell, or keybindings. They should be proposed as independent
+packages, with their runtime and default-install policy reviewed separately.
 
 ## Known package exclusions
 
@@ -362,7 +364,7 @@ removed `t3code-patched-bin` and added the AArch64-enabled `strata` recipe.
 | `omakade` | The Qt/CMake source recipe declares only x86_64. A clean native AArch64 build and payload audit are still required. |
 | `omapresent` | Upstream explicitly records AArch64 as plausible but unproven. Its Qt WebEngine build and payload have not yet passed native AArch64 validation. |
 
-The fork's two additional package bases and the exclusions above are therefore
+The fork's three additional package bases and the exclusions above are therefore
 recorded as product or hardware policy decisions, not worked around in the
 global builder.
 

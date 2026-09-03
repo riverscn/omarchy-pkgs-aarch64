@@ -4,6 +4,17 @@ Build system for the Omarchy Package Repository. Builds PKGBUILDs from local sou
 
 **Multi-Architecture**: Supports both x86_64 and aarch64 (ARM64).
 
+The fork's native AArch64 GitHub Actions release adapter is documented in
+[`docs/aarch64-github-release-adapter.md`](docs/aarch64-github-release-adapter.md).
+It exposes the upstream `edge → rc → stable` train as the independently signed
+rolling Releases `aarch64-edge`, `aarch64-rc`, and `aarch64-stable`. There is no
+separate `dev` channel: `omarchy-dev` and `omarchy-settings-dev` are edge-only
+packages, matching their upstream metadata.
+
+The plan for removing the temporary Omarchy source fork while preserving those
+channels is documented in
+[`docs/aarch64-runtime-convergence.md`](docs/aarch64-runtime-convergence.md).
+
 ## PKGBUILDs
 
 Each package lives directly under `pkgbuilds/<package>/` and carries Omarchy metadata in `.omarchy/package.json`.
@@ -28,7 +39,7 @@ The filesystem no longer encodes release policy. Instead:
 - packages that follow a vendor release feed instead of the AUR carry an `.omarchy/upstream.sh` hook
 
 ## Prerequisites
-### aarch64 Builds (Optional)
+### Cross-building aarch64 on x86_64 (upstream optional path)
 
 To build ARM64 packages on x86_64, enable QEMU emulation:
 
@@ -41,7 +52,9 @@ docker run --rm --platform linux/arm64 alpine:latest uname -m
 # Should output: aarch64
 ```
 
-**Note**: aarch64 builds use QEMU and slower than native x86_64 builds.
+**Note**: this preserves upstream's optional cross-host workflow. The fork's
+GitHub AArch64 release adapter does not enable QEMU or binfmt; production and
+zero-baseline validation run on a native AArch64 Docker host.
 
 ## Quick Start
 
@@ -440,7 +453,11 @@ bin/package-worktree v4l2-relayd     # Create upstream/patched/current scratch w
 ## Cutting an Omarchy Release
 
 The `omarchy` and `omarchy-settings` packages are released as a pair, always
-built from the same upstream commit of basecamp/omarchy.
+built from the same reviewed source commit. The upstream repository uses
+`basecamp/omarchy`; the AArch64 release adapter pins the corresponding adapted
+commit from `riverscn/omarchy-aarch64`. Its edge-only development pair follows
+that fork's canonical `quattro` branch so changing channels cannot replace the
+AArch64 runtime with an unadapted checkout.
 
 **Use `bin/omarchy-release`** (see [Cutting an Omarchy release](#cutting-an-omarchy-release)
 in Quick Start) — it drives the whole train across all four repositories and
@@ -702,7 +719,8 @@ bin/repo release --package my-package
 - Mirrors: mirror.omarchy.org, rackspace, pkgbuild.com
 
 ### aarch64
-- QEMU emulation required on x86_64 hosts (slower)
+- Native AArch64 is required for this fork's release adapter
+- Upstream's optional x86_64-host path uses QEMU emulation and is not a release path here
 - Uses Arch Linux ARM repositories
 - Additional repos: `[alarm]`, `[aur]`
 - Same workflow, just add `--arch aarch64`

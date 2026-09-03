@@ -30,15 +30,15 @@ each exception can be reviewed, updated, or removed with its package.
 
 ## Current upstream-delta audit
 
-The package deltas were re-audited on 2026-08-31 against
-`omacom-io/omarchy-pkgs` commit `28a4cfc6626801398b5748e0793509f5a19f6aeb`
-(the current master, two commits after the Omarchy 4.0.2 release). The review covered every package directory changed
+The package deltas were re-audited through 2026-09-03 against
+`omacom-io/omarchy-pkgs` commit `48e60a6539266accaeb866d6ef6cd2da4aed00e9`.
+The review covered every package directory changed
 relative to that revision, not only the packages that had failed an earlier
 build. Current AUR heads were also checked for every changed or added
 AUR-backed recipe. Updated recipes were synchronized before re-running the
 metadata and payload gates.
 
-The 28 modified upstream package directories fall into the following review
+The 32 modified upstream package directories fall into the following review
 classes:
 
 | Review class | Package bases | Result |
@@ -47,10 +47,20 @@ classes:
 | Portable source build whose recipe omits AArch64 | `asdcontrol`, `hermes-desktop`, `hyprland-preview-share-picker`, `libretro-uae-git`, `omasnap`, `qmk-hid`, `symfony-cli`, `tensaku`, `tzupdate`, `v4l2-relayd` | Still required. Their current source builds are portable, but the checked recipe still does not expose an AArch64 package. |
 | Architecture-specific dependency, boot, or DKMS correction | `limine-mkinitcpio-hook`, `sunshine`, `xpadneo-dkms`, `yt6801-dkms` | Still required. Each change remains package-local and preserves the existing x86_64 path. |
 | Explicit unsupported-runtime guard | `dropbox-cli` | Retained as a safety correction: the Python CLI is portable, but its required proprietary Dropbox daemon remains x86_64-only. |
+| Downstream runtime source/channel pin | `omarchy`, `omarchy-settings`, `omarchy-dev`, `omarchy-settings-dev` | Required only by the fork integration, not by the package-support pull request. Stable/RC packages pin the adapted official release; dev packages follow the adapted `quattro` branch. |
 
 The review removed or narrowed differences that no longer had the same
 justification:
 
+- Stable runtime packages now follow the adapted official 4.0.2 source instead
+  of retaining the previous `4.0.1.r...` fork revision.
+- The stable `omarchy-settings` recipe preserves upstream's staging of
+  `/etc/cups/cups-files.conf` under `/usr/share/omarchy/etc-overrides` instead
+  of owning the live path already provided by Arch's `cups` package. That
+  correction shipped as `4.0.2-2`; the synchronized runtime pair now uses
+  `4.0.2-4` and pins immutable source tag `v4.0.2-aarch64.3`. This revision
+  removes downstream desktop policy while retaining the AArch64 repository
+  and package-policy migration for existing users.
 - `github-copilot-cli` dropped its stale `pkgrel` suffix metadata when its AUR
   `pkgver` advanced. The ordinary local `.1` rebuild suffix is sufficient for
   the new version.
@@ -59,9 +69,8 @@ justification:
   existing x86_64 kernel path and omits it only from the AArch64 dependency
   graph; an unsupported `checkdepends_x86_64` field is intentionally not used.
 - The Limine runtime patch no longer adds a `LIMINE_FORCE_UEFI` bypass. Native
-  firmware detection is unchanged. Limine 1.38 absorbed generic
-  multi-architecture UEFI selection, so the remaining adaptation is limited to
-  Arch Linux ARM's kernel name and `/boot/Image` plus the rEFInd AA64 filename.
+  firmware detection is unchanged; only architecture-correct EFI names and the
+  Arch Linux ARM kernel-preset path remain in the adaptation.
 - Cursor, Copilot CLI, Voxtype, LM Studio, and Zen were refreshed to their
   current AUR revisions. The three persistent recipe patches were regenerated
   against those exact baselines and apply without fuzz.
@@ -86,6 +95,12 @@ justification:
   that new baseline, the remaining delta only declares AArch64 and selects
   electron-builder's `linux-arm64-unpacked` output.
 
+`tensaku` and `tzupdate` deliberately retain their temporary `pkgrel` offset.
+The currently published AArch64 repositories already contain `0.28.0-2.1` and
+`3.1.0-2.1`; dropping the offset while `pkgver` is unchanged would make a new
+build sort below installed systems. `bin/sync-aur` removes that metadata
+automatically when either package advances to a new `pkgver`.
+
 - PPSSPP's generic assets-path patch was rebased against the pinned libretro
   source revision. Its install path is unchanged, but it now applies without
   fuzz. The package-local post-sync hook preserves that exact replacement only
@@ -95,16 +110,16 @@ justification:
 
 ### Upstream additions reviewed on 2026-09-01
 
-Rebasing onto upstream commit `a3d150e2b02c05fa5f7736d82bd42839516d2a3f`
+Merging upstream commit `a3d150e2b02c05fa5f7736d82bd42839516d2a3f`
 introduced or restored five package bases. `python-sounddevice` declares
-`arch=(any)`, has no native payload, and joins native AArch64 builds without a
-recipe change. The remaining four are deliberately excluded until their
-native paths are proved:
+`arch=(any)`, has no native payload, and is included in the shared AArch64
+scope without a downstream recipe change. The remaining four are deliberately
+excluded until their native paths are proved:
 
 | Package base | Current blocker |
 | --- | --- |
-| `python-mediapipe` | The recipe downloads and executes `bazel-7.4.1-linux-x86_64`, declares only x86_64, and depends on `python-tensorflow`. A native Bazel/toolchain and dependency closure must be validated before enabling it. |
-| `link-studio` | The source itself is plausibly portable, but its required `python-mediapipe` dependency is not yet available on AArch64. |
+| `python-mediapipe` | The upstream recipe downloads and executes `bazel-7.4.1-linux-x86_64`, declares only x86_64, and depends on `python-tensorflow`. A native Bazel/toolchain and dependency closure must be validated before enabling it. |
+| `link-studio` | The source itself is plausibly portable, but its required `python-mediapipe` dependency is not yet available in the AArch64 package scope. |
 | `omakade` | The Qt/CMake source recipe declares only x86_64. It may be enabled after a clean native AArch64 build and payload audit. |
 | `omapresent` | Upstream explicitly describes AArch64 as plausible but unproven. Its Qt WebEngine build and resulting payload require the same native validation. |
 
@@ -117,13 +132,32 @@ historical package count equal to x86_64.
 
 Upstream commit `22e908d831f1e3b494abd018f14f9a66e942d5af` adds
 `perplexity`. Its vendor repository publishes matching amd64 and arm64 Debian
-packages, the recipe pins independent checksums for both, and its package
-metadata places it in the fast ring. It therefore needs no change in this pull
-request and no architecture-audit exception.
+packages and the recipe pins independent checksums for both. The package needs
+no architecture patch or audit exception. The downstream GitHub Release
+adapter does, however, remove it from the fast ring: repeated native GitHub ARM
+runner requests to the official pool returned HTTP 403, while the same pinned
+URL downloaded and passed checksum, packaging, and recursive payload audit on
+the native release host. Because this recipe only repackages the vendor's
+prebuilt application, the already signed edge archive is advanced unchanged
+through RC and stable instead of downloading the same Debian archive again in
+each channel. This is a release-environment exception, not an AArch64 payload
+exception, and can be dropped if the vendor permits GitHub-hosted runners.
 
 The shared AArch64 scope retains the 20 reviewed coverage additions selected
-during the original alignment. Fork-only keyring, image-integration,
-runtime-pin, and GitHub Release changes are not part of this pull request.
+during the original alignment. `omarchy-aarch64-keyring`,
+`omarchy-aarch64-config`, and `omarchy-spice-guest-tools` remain separately
+identified downstream additions; they are not presented as general
+architecture enablement. The config package carries only upgradeable package
+exclusions and requested-name replacements used during a default-package
+reinstall. It intentionally does not override the upstream menu, shell layout,
+or Hyprland keybindings.
+
+The VM exclusion list is limited to `gpu-screen-recorder`, `obs-studio`, and
+`qemu-user-static-binfmt`. The first two do not yet have a validated runtime in
+the generic AArch64 VM profile; the last is emulation and is deliberately not
+part of the native-only design. Previously omitted upstream defaults that are
+available from Arch Linux ARM or the signed AArch64 repository are installed
+normally.
 
 All 20 shared additions remain absent from the audited upstream 4.0.2 tree, so
 none has become a duplicate that can simply be removed. They do not all have
@@ -157,33 +191,32 @@ foreign executable or audit error. The source tag for T3 Code 0.0.37 still
 declares 0.0.36 in electron-builder's internal artifact name, so the recipe
 selects the unique ARM64 artifact instead of rewriting vendor metadata.
 
-After rebasing this branch onto upstream `master` on 2026-09-03, T3 Code had
-advanced to 0.0.38. Its new source checksum and frozen lockfile verified, and a
-fresh native AArch64 Docker build produced
-`t3code-bin-0.0.38-1-aarch64.pkg.tar.zst`. The recursive audit expanded 14,770
-files (723,185,733 bytes), found 17 AArch64 ELF files and one nested AppImage,
-and reported no wrong-architecture ELF, foreign executable, reviewed exception,
-or extraction error. This tag likewise declares the previous 0.0.37 internally,
-so the version-independent artifact selection was exercised again. No QEMU or
-binfmt emulation was used.
+After rebasing onto that upstream baseline, T3 Code had advanced to 0.0.38.
+Its new source checksum and frozen lockfile verified, and a fresh native
+AArch64 Docker build produced `t3code-bin-0.0.38-1-aarch64.pkg.tar.zst`. The
+recursive audit expanded 14,770 files (723,185,733 bytes), found 17 AArch64 ELF
+files and one nested AppImage, and reported no wrong-architecture ELF, foreign
+executable, reviewed exception, or extraction error. This tag likewise
+declares the previous 0.0.37 internally, so the version-independent artifact
+selection was exercised again.
 
-That rebase also replaced the removed x86-only `t3code-patched-bin` recipe with
+The rebase also replaced the removed x86-only `t3code-patched-bin` recipe with
 upstream's new `strata` source recipe. A native AArch64 build of Strata 0.8.0,
 together with its repository-local `xdg-terminal-exec` dependency, passed all
 375 upstream tests. The final Strata package contained nine files and one
 AArch64 ELF; the recursive audit reported no wrong-architecture ELF, foreign
 executable, reviewed exception, nested container, or extraction error. The
 dependency package also passed its own 24 tests and payload audit. No recipe or
-network-policy change was needed, and neither build used QEMU or binfmt
+network-policy change was needed. Neither validation used QEMU or binfmt
 emulation.
 
 After upstream advanced during the audit, Hermes Desktop 2026.8.18-2 was
 rebuilt again from the new baseline. Its package expanded to 477 files with
 nine AArch64 ELF files and two nested containers, including the source-built
 `linux-arm64` node-pty binding, with no foreign executable or audit error.
-The refreshed Limine recipe was likewise rebuilt after narrowing its runtime
-patch: its GraalVM native image was AArch64 and the 33-file package passed with
-no foreign payload or audit error. Neither build used QEMU or binfmt emulation.
+Limine 1.38.0-2.2 was likewise rebuilt after narrowing its runtime patch: its
+GraalVM native image was AArch64 and the 33-file package passed with no foreign
+payload or audit error. Neither build used QEMU or binfmt emulation.
 
 ## AUR post-sync exceptions
 

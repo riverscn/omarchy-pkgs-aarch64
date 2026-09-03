@@ -509,7 +509,7 @@ if grep -R -q 'LIMINE_FORCE_UEFI' "$limine_dir"; then
   echo 'Limine AArch64 support must preserve native UEFI detection' >&2
   exit 1
 fi
-grep -Eq '^pkgrel=[0-9]+\.1$' "$limine_dir/PKGBUILD" || {
+grep -Eq '^pkgrel=[0-9]+\.2$' "$limine_dir/PKGBUILD" || {
   echo 'Limine runtime patch does not carry an Omarchy package revision' >&2
   exit 1
 }
@@ -570,6 +570,15 @@ grep -Fq 'repo-add omarchy-build.db.tar.zst "${built_filenames[@]}"' "$ROOT/buil
 }
 grep -Fq 'Cannot initialize the local build repository' "$ROOT/build/build.sh" || {
   echo "Builder does not fail closed when its local repository cannot be initialized" >&2
+  exit 1
+}
+remote_fallback_line=$(grep -nF 'echo "Server = $OMARCHY_REPOSITORY_SERVER"' \
+  "$ROOT/build/build.sh" | cut -d: -f1)
+local_repository_line=$(grep -nF 'echo "Server = file://$FINAL_OUTPUT_DIR"' \
+  "$ROOT/build/build.sh" | cut -d: -f1)
+[[ -n $remote_fallback_line && -n $local_repository_line &&
+   $remote_fallback_line -lt $local_repository_line ]] || {
+  echo "Sparse repository fallback must precede the incomplete local archive store" >&2
   exit 1
 }
 grep -Fq 'Failed to synchronize the updated local build repository' \
@@ -656,6 +665,86 @@ grep -Fq \
   'Build order: omarchy-settings omarchy-settings-dev omarchy omarchy-dev' \
   <<< "$variant_plan" || {
   echo "Builder cannot order mutually exclusive stable/dev package variants" >&2
+  exit 1
+}
+
+# AArch64 channel switching must not replace the adapted runtime with the
+# unmodified upstream source. Stable pins one reviewed commit, while the two
+# edge-only development packages follow the adapted quattro branch together.
+stable_commit=$(sed -n "s/^_commit='\([^']*\)'/\1/p" "$ROOT/pkgbuilds/omarchy/PKGBUILD")
+settings_commit=$(sed -n "s/^_commit='\([^']*\)'/\1/p" "$ROOT/pkgbuilds/omarchy-settings/PKGBUILD")
+[[ $stable_commit =~ ^[0-9a-f]{40}$ && $stable_commit == "$settings_commit" ]] || {
+  echo "Stable Omarchy packages do not pin the same adapted source commit" >&2
+  exit 1
+}
+for development_package in omarchy-dev omarchy-settings-dev; do
+  grep -Fq 'git+https://github.com/riverscn/omarchy-aarch64.git#branch=quattro' \
+    "$ROOT/pkgbuilds/$development_package/PKGBUILD" || {
+    echo "$development_package does not follow the adapted AArch64 quattro branch" >&2
+    exit 1
+  }
+  grep -Fq 'Required upstream version baseline is missing:' \
+    "$ROOT/pkgbuilds/$development_package/PKGBUILD" || {
+    echo "$development_package can silently change VCS version schemes when the fork loses an upstream tag" >&2
+    exit 1
+  }
+done
+grep -Eq "^[[:space:]]+'omarchy-aarch64-keyring'$" "$ROOT/pkgbuilds/omarchy-dev/PKGBUILD" || {
+  echo "The edge runtime can orphan the AArch64 repository keyring" >&2
+  exit 1
+}
+
+runtime_profile="$ROOT/pkgbuilds/omarchy-aarch64-config"
+jq -e '.source == "local" and .release_ring == "fast"' \
+  "$runtime_profile/.omarchy/package.json" >/dev/null || {
+  echo "The AArch64 runtime profile is not built natively for every release channel" >&2
+  exit 1
+}
+grep -Fq '/usr/share/omarchy/system/excluded-packages' "$runtime_profile/PKGBUILD" || {
+  echo "The AArch64 runtime profile does not install its package exclusions" >&2
+  exit 1
+}
+grep -Fq '/usr/share/omarchy/system/package-replacements' "$runtime_profile/PKGBUILD" || {
+  echo "The AArch64 runtime profile does not install its package replacements" >&2
+  exit 1
+}
+if grep -Eq 'omarchy-menu|shell-defaults|hyprland\.lua|depends=.*jq' "$runtime_profile/PKGBUILD"; then
+  echo "The AArch64 package policy still owns desktop or menu behavior" >&2
+  exit 1
+fi
+if [[ -e $runtime_profile/omarchy-menu.jsonc || -e $runtime_profile/shell-defaults.jq || \
+  -e $runtime_profile/hyprland.lua ]]; then
+  echo "The AArch64 package policy still ships retired desktop overlays" >&2
+  exit 1
+fi
+grep -Fxq 'qemu-user-static-binfmt' "$runtime_profile/excluded-packages" || {
+  echo "The native-only AArch64 profile no longer excludes QEMU user emulation" >&2
+  exit 1
+}
+diff -u \
+  <(printf '%s\n' gpu-screen-recorder obs-studio qemu-user-static-binfmt | sort) \
+  <(sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' \
+    "$runtime_profile/excluded-packages" | sort) || {
+  echo "The AArch64 package policy excludes a supported upstream default" >&2
+  exit 1
+}
+grep -Fxq 'nvim neovim' "$runtime_profile/package-replacements" || {
+  echo "The AArch64 package policy does not replace the unavailable nvim package name" >&2
+  exit 1
+}
+grep -Fxq 'dotnet-runtime dotnet-runtime-bin' "$runtime_profile/package-replacements" || {
+  echo "The AArch64 package policy does not select the maintained .NET provider" >&2
+  exit 1
+}
+runtime_verify_work="$metadata_work/omarchy-aarch64-config-verify"
+mkdir -p "$runtime_verify_work"
+(
+  cd "$runtime_profile"
+  BUILDDIR="$runtime_verify_work" PKGDEST="$runtime_verify_work" \
+    SRCDEST="$runtime_verify_work" SRCPKGDEST="$runtime_verify_work" \
+    LOGDEST="$runtime_verify_work" makepkg --verifysource --noconfirm >/dev/null
+) || {
+  echo "The AArch64 package policy does not pin its local payload checksum" >&2
   exit 1
 }
 grep -Fq '[[ $ARCH == aarch64 && $(uname -m) == aarch64 ]]' "$ROOT/bin/sign" || {
