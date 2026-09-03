@@ -384,6 +384,16 @@ grep -Fq 'multiple staged versions found for package' \
   echo "Chained RC bootstrap does not reject ambiguous staged package versions" >&2
   exit 1
 }
+grep -Fq 'Reconciling native $TO_CHANNEL packages before atomic advancement.' \
+  "$ROOT/bin/github-release-aarch64" || {
+  echo "Channel advancement does not reconcile target-native packages atomically" >&2
+  exit 1
+}
+grep -Fq '[[ $TO_CHANNEL == rc ]] && package_is_pinned "$package_dir"' \
+  "$ROOT/bin/github-release-aarch64" || {
+  echo "Edge advancement can pre-empt the RC branch's pinned runtime candidate" >&2
+  exit 1
+}
 grep -Fq 'OMARCHY_RC_PINS:' "$workflow" || {
   echo "RC branch builds do not enable the upstream pinned-package guard" >&2
   exit 1

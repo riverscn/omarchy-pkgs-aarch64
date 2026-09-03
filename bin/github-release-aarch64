@@ -521,9 +521,18 @@ stage_advance() (
       ((skipped += 1))
       continue
     fi
-    if [[ $BOOTSTRAP != true ]] && ! package_moves_to_channel "$package_dir" "$TO_CHANNEL"; then
-      ((skipped += 1))
-      continue
+    if [[ $BOOTSTRAP != true ]]; then
+      # RC's pinned runtime pair is authoritative only when built from the
+      # standing rc branch with OMARCHY_RC_PINS=1. Do not let a master's edge
+      # snapshot pre-empt that candidate with independently built bytes.
+      if [[ $TO_CHANNEL == rc ]] && package_is_pinned "$package_dir"; then
+        ((skipped += 1))
+        continue
+      fi
+      if ! package_moves_to_channel "$package_dir" "$TO_CHANNEL"; then
+        ((skipped += 1))
+        continue
+      fi
     fi
 
     source_hash=$(checksum_for "$source_work/SHA256SUMS" "$filename") || {
@@ -606,6 +615,7 @@ stage_advance() (
 )
 
 run_advance() {
+  local initial_bootstrap=$BOOTSTRAP
   validate_advance_direction
   ALLOW_EMPTY_BASELINE=$BOOTSTRAP
   seed_repository
@@ -616,6 +626,14 @@ run_advance() {
     FROM_CHANNEL=edge
     SOURCE_RELEASE_TAG=""
     stage_advance
+  fi
+  if [[ $initial_bootstrap != true ]]; then
+    # GitHub jobs have no shared mutable repository workspace. Reconcile the
+    # destination's native build ring in this unpublished transaction so a new
+    # or reclassified package cannot make advancement depend on an earlier
+    # partial channel publication.
+    echo "Reconciling native $TO_CHANNEL packages before atomic advancement."
+    build_packages
   fi
   prepare_repository
   publish_repository
