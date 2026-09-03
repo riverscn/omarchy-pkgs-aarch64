@@ -736,9 +736,13 @@ grep -Fxq 'dotnet-runtime dotnet-runtime-bin' "$runtime_profile/package-replacem
   echo "The AArch64 package policy does not select the maintained .NET provider" >&2
   exit 1
 }
+runtime_verify_work="$metadata_work/omarchy-aarch64-config-verify"
+mkdir -p "$runtime_verify_work"
 (
   cd "$runtime_profile"
-  makepkg --verifysource --noconfirm >/dev/null
+  BUILDDIR="$runtime_verify_work" PKGDEST="$runtime_verify_work" \
+    SRCDEST="$runtime_verify_work" SRCPKGDEST="$runtime_verify_work" \
+    LOGDEST="$runtime_verify_work" makepkg --verifysource --noconfirm >/dev/null
 ) || {
   echo "The AArch64 package policy does not pin its local payload checksum" >&2
   exit 1
