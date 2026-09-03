@@ -11,6 +11,10 @@ rolling Releases `aarch64-edge`, `aarch64-rc`, and `aarch64-stable`. There is no
 separate `dev` channel: `omarchy-dev` and `omarchy-settings-dev` are edge-only
 packages, matching their upstream metadata.
 
+The plan for removing the temporary Omarchy source fork while preserving those
+channels is documented in
+[`docs/aarch64-runtime-convergence.md`](docs/aarch64-runtime-convergence.md).
+
 ## PKGBUILDs
 
 Each package lives directly under `pkgbuilds/<package>/` and carries Omarchy metadata in `.omarchy/package.json`.

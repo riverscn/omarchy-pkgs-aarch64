@@ -227,8 +227,8 @@ The three fork-only packages remain explicit in
 `config/aarch64-fork-packages`:
 
 - `omarchy-aarch64-keyring` distributes this repository's public signing key;
-- `omarchy-aarch64-config` distributes the upgradeable generic-VM runtime
-  profile without changing the shared upstream package scope;
+- `omarchy-aarch64-config` distributes upgradeable generic-VM package
+  exclusions and replacements without changing desktop behavior or the shared upstream package scope;
 - `omarchy-spice-guest-tools` is a fork-owned guest integration package.
 
 The test suite requires the upstream-aligned manifest to contain 118 unique

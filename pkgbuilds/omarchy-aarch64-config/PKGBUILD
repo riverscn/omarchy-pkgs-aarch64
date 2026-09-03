@@ -2,32 +2,23 @@
 
 pkgname=omarchy-aarch64-config
 pkgver=1
-pkgrel=1
-pkgdesc='Upgradeable runtime profile for Omarchy AArch64 virtual machines'
+pkgrel=2
+pkgdesc='Upgradeable package policy for Omarchy AArch64 virtual machines'
 arch=('any')
 url='https://github.com/riverscn/omarchy-pkgs-aarch64'
 license=('MIT')
-depends=('jq')
 source=(
-  'omarchy-menu.jsonc'
-  'shell-defaults.jq'
-  'hyprland.lua'
   'excluded-packages'
+  'package-replacements'
 )
 sha256sums=(
-  '00c7b4d609c94a35ab21f55effb0b86ce35202b1ebb75ccb1d0cc9ce671be2d6'
-  '6b18b9a2d4aba627ef110b792857b62f68fecddc38ef14b26ae3904960d37672'
-  'dcb33e705368680bd7595e5c44d9d1ffef529f040dbc5ecaa03d6f43fd4d1a71'
-  'c66516404941c2934f69f0a8973867e153c64a2106567f377dabddb1803ad2cd'
+  '1093b43a536216a8c451c1403033c813a15afdce1373706ca72d142513eccac9'
+  'b584f2358f6b1d824405c5b63a3bd3f95081bb1253b4cd13d3562a2bea019133'
 )
 
 package() {
-  install -Dm644 omarchy-menu.jsonc \
-    "$pkgdir/usr/share/omarchy/system/omarchy-menu.jsonc"
-  install -Dm644 shell-defaults.jq \
-    "$pkgdir/usr/share/omarchy/system/shell-defaults.jq"
-  install -Dm644 hyprland.lua \
-    "$pkgdir/usr/share/omarchy/omarchy/system/hyprland.lua"
   install -Dm644 excluded-packages \
     "$pkgdir/usr/share/omarchy/system/excluded-packages"
+  install -Dm644 package-replacements \
+    "$pkgdir/usr/share/omarchy/system/package-replacements"
 }

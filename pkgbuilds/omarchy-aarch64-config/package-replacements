@@ -1,0 +1,6 @@
+# Requested-name replacement. Arch Linux ARM's neovim package provides nvim,
+# but pacman cannot resolve a provider when the requested target has no package.
+nvim neovim
+# The maintained Microsoft binary split package provides the unsuffixed
+# dotnet-runtime dependency used by Omarchy and Pinta.
+dotnet-runtime dotnet-runtime-bin

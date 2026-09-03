@@ -58,8 +58,9 @@ justification:
   `/etc/cups/cups-files.conf` under `/usr/share/omarchy/etc-overrides` instead
   of owning the live path already provided by Arch's `cups` package. That
   correction shipped as `4.0.2-2`; the synchronized runtime pair now uses
-  `4.0.2-3` and pins immutable source tag `v4.0.2-aarch64.2` so the managed
-  AArch64 profile and migration reach existing stable users.
+  `4.0.2-4` and pins immutable source tag `v4.0.2-aarch64.3`. This revision
+  removes downstream desktop policy while retaining the AArch64 repository
+  and package-policy migration for existing users.
 - `github-copilot-cli` dropped its stale `pkgrel` suffix metadata when its AUR
   `pkgver` advanced. The ordinary local `.1` rebuild suffix is sufficient for
   the new version.
@@ -139,9 +140,17 @@ The shared AArch64 scope retains the 20 reviewed coverage additions selected
 during the original alignment. `omarchy-aarch64-keyring`,
 `omarchy-aarch64-config`, and `omarchy-spice-guest-tools` remain separately
 identified downstream additions; they are not presented as general
-architecture enablement. The config package carries upgradeable VM-profile
-policy so menu, shell, keybinding, and reinstall behavior do not freeze at the
-image's creation date.
+architecture enablement. The config package carries only upgradeable package
+exclusions and requested-name replacements used during a default-package
+reinstall. It intentionally does not override the upstream menu, shell layout,
+or Hyprland keybindings.
+
+The VM exclusion list is limited to `gpu-screen-recorder`, `obs-studio`, and
+`qemu-user-static-binfmt`. The first two do not yet have a validated runtime in
+the generic AArch64 VM profile; the last is emulation and is deliberately not
+part of the native-only design. Previously omitted upstream defaults that are
+available from Arch Linux ARM or the signed AArch64 repository are installed
+normally.
 
 All 20 shared additions remain absent from the audited upstream 4.0.2 tree, so
 none has become a duplicate that can simply be removed. They do not all have

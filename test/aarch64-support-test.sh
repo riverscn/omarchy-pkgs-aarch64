@@ -700,63 +700,47 @@ jq -e '.source == "local" and .release_ring == "fast"' \
   echo "The AArch64 runtime profile is not built natively for every release channel" >&2
   exit 1
 }
-grep -Fq '/usr/share/omarchy/system/omarchy-menu.jsonc' "$runtime_profile/PKGBUILD" || {
-  echo "The AArch64 runtime profile does not install its system menu policy" >&2
+grep -Fq '/usr/share/omarchy/system/excluded-packages' "$runtime_profile/PKGBUILD" || {
+  echo "The AArch64 runtime profile does not install its package exclusions" >&2
   exit 1
 }
-grep -Fq 'omarchy.bluetooth' "$runtime_profile/shell-defaults.jq" || {
-  echo "The AArch64 runtime profile leaves its unavailable Bluetooth UI enabled" >&2
+grep -Fq '/usr/share/omarchy/system/package-replacements' "$runtime_profile/PKGBUILD" || {
+  echo "The AArch64 runtime profile does not install its package replacements" >&2
   exit 1
 }
-grep -Fq 'gpu-screen-recorder' "$runtime_profile/omarchy-menu.jsonc" || {
-  echo "The AArch64 runtime profile leaves unavailable screen recording in the menu" >&2
+if grep -Eq 'omarchy-menu|shell-defaults|hyprland\.lua|depends=.*jq' "$runtime_profile/PKGBUILD"; then
+  echo "The AArch64 package policy still owns desktop or menu behavior" >&2
+  exit 1
+fi
+if [[ -e $runtime_profile/omarchy-menu.jsonc || -e $runtime_profile/shell-defaults.jq || \
+  -e $runtime_profile/hyprland.lua ]]; then
+  echo "The AArch64 package policy still ships retired desktop overlays" >&2
+  exit 1
+fi
+grep -Fxq 'qemu-user-static-binfmt' "$runtime_profile/excluded-packages" || {
+  echo "The native-only AArch64 profile no longer excludes QEMU user emulation" >&2
   exit 1
 }
-sed '/^[[:space:]]*\/\//d' "$runtime_profile/omarchy-menu.jsonc" | jq -e . >/dev/null || {
-  echo "The AArch64 runtime profile menu overlay is not valid JSONC" >&2
+diff -u \
+  <(printf '%s\n' gpu-screen-recorder obs-studio qemu-user-static-binfmt | sort) \
+  <(sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' \
+    "$runtime_profile/excluded-packages" | sort) || {
+  echo "The AArch64 package policy excludes a supported upstream default" >&2
   exit 1
 }
-for unsupported_installer in \
-  install.windows install.browser.edge install.service.dropbox \
-  install.service.spotify install.gaming.steam install.gaming.minecraft \
-  install.gaming.geforce-now install.gaming.battlenet install.gaming.lutris; do
-  jq -er --arg id "$unsupported_installer" \
-    '.[$id].when | contains("x86_64")' \
-    < <(sed '/^[[:space:]]*\/\//d' "$runtime_profile/omarchy-menu.jsonc") >/dev/null || {
-    echo "The AArch64 runtime profile exposes unsupported installer: $unsupported_installer" >&2
-    exit 1
-  }
-done
-shell_fixture="$metadata_work/aarch64-runtime-shell.json"
-cat >"$shell_fixture" <<'JSON'
-{
-  "bar": {
-    "layout": {
-      "left": [{"id":"omarchy.menu"}],
-      "center": [{"id":"omarchy.indicators","items":["Dictation","ScreenRecording","NightLight","Custom"]}],
-      "right": [{"id":"omarchy.bluetooth"},{"id":"user.widget"}]
-    }
-  },
-  "disabledPlugins": ["user.disabled"],
-  "userSetting": "preserved"
-}
-JSON
-jq -f "$runtime_profile/shell-defaults.jq" "$shell_fixture" |
-  jq -e '
-    .userSetting == "preserved"
-    and (.bar.layout.right | map(.id) == ["user.widget"])
-    and (.bar.layout.center[0].items == ["Dictation", "Custom"])
-    and (.disabledPlugins | contains(["user.disabled", "omarchy.bluetooth", "omarchy.nightlight"]))
-  ' >/dev/null || {
-  echo "The AArch64 runtime profile does not preserve unrelated user shell settings" >&2
+grep -Fxq 'nvim neovim' "$runtime_profile/package-replacements" || {
+  echo "The AArch64 package policy does not replace the unavailable nvim package name" >&2
   exit 1
 }
-luac -p "$runtime_profile/hyprland.lua"
+grep -Fxq 'dotnet-runtime dotnet-runtime-bin' "$runtime_profile/package-replacements" || {
+  echo "The AArch64 package policy does not select the maintained .NET provider" >&2
+  exit 1
+}
 (
   cd "$runtime_profile"
   makepkg --verifysource --noconfirm >/dev/null
 ) || {
-  echo "The AArch64 runtime profile does not pin its local payload checksums" >&2
+  echo "The AArch64 package policy does not pin its local payload checksum" >&2
   exit 1
 }
 grep -Fq '[[ $ARCH == aarch64 && $(uname -m) == aarch64 ]]' "$ROOT/bin/sign" || {
