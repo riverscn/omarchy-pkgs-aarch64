@@ -453,3 +453,25 @@ the reviewed `1.14.9-1.1` cleanup. The atomic bootstrap overlay described above
 was added so the corrected forwardable archive replaces that legacy version in
 the unpublished workspace before the complete RC audit. The foreign binary is
 not allowlisted, copied into RC, or exposed during an intermediate publication.
+
+The production release train was completed on 2026-09-03. The managed edge
+snapshot contains 121 package bases and 150 package outputs; the managed RC and
+stable snapshots each contain 119 package bases and 148 outputs. Downloaded
+copies of all three repository databases verified against the checked-in
+`2A388EDA14046A9218EA5B39D34CA866CE325F2D` signing key. Edge contains both
+development packages, while RC and stable contain only `omarchy` and
+`omarchy-settings`; all three contain `omarchy-aarch64-config` 1-2 and the
+reviewed Perplexity 26.8.4+build50522-1 package. The stable Release is the only
+GitHub `latest` Release.
+
+The final edge-to-RC advancement completed in
+[run 33726833509](https://github.com/riverscn/omarchy-pkgs-aarch64/actions/runs/33726833509),
+the normal RC build and full audit completed in
+[run 33727797305](https://github.com/riverscn/omarchy-pkgs-aarch64/actions/runs/33727797305),
+and RC-to-stable advancement completed in
+[run 33729766246](https://github.com/riverscn/omarchy-pkgs-aarch64/actions/runs/33729766246).
+After `rc` was aligned to the final `master` tree, a no-change RC run still
+revalidated all 148 outputs and completed successfully in
+[run 33730887182](https://github.com/riverscn/omarchy-pkgs-aarch64/actions/runs/33730887182)
+without rebuilding packages or rewriting the rolling Release. All of these jobs
+ran on native GitHub ARM runners without QEMU.
