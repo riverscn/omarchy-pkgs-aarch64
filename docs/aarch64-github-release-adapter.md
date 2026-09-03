@@ -137,14 +137,21 @@ bin/github-release-aarch64 advance --from rc --to stable
 
 Advancement reads the signed source database, applies the shared destination
 eligibility rules, downloads only archives absent from the destination, verifies
-their source SHA-256 entries and detached signatures, rebuilds and signs the
+their source SHA-256 entries and detached signatures, reconciles packages that
+must be built natively in the destination channel, rebuilds and signs the
 destination database, resolves every destination package transaction, and then
-uses the same atomic Release publisher. All selected archives are downloaded in
-one Release operation so bootstrap does not repeat the asset-list API request
-for every package. The Ubuntu runner host only reads the trusted PKGBUILD
-identity variables needed to match database entries; Arch-specific metadata
-generation, build selection, and repository auditing remain inside the normal
-native Arch builder image. Reverse movement and stable-to-rc
+uses the same atomic Release publisher. This target-native reconciliation is
+part of the same unpublished workspace because separate GitHub jobs cannot
+share the upstream host's mutable repository tree. It also makes a new package
+or a release-ring change atomic instead of requiring a temporarily incomplete
+target Release. The pinned runtime pair is never copied from edge into RC; its
+candidate is authoritative only when the standing `rc` branch builds it with
+`OMARCHY_RC_PINS=1`. All selected archives are downloaded in one Release
+operation so bootstrap does not repeat the asset-list API request for every
+package. The Ubuntu runner host only reads the trusted PKGBUILD identity
+variables needed to match database entries; Arch-specific metadata generation,
+build selection, and repository auditing remain inside the normal native Arch
+builder image. Reverse movement and stable-to-rc
 movement without the explicit one-time bootstrap flag fail before any network
 mutation.
 
@@ -336,8 +343,11 @@ staging the stable baseline it overlays packages that are currently eligible
 to move from edge, then audits and publishes the resulting snapshot once. This
 keeps a legacy stable archive that has already been superseded by a reviewed
 edge correction from becoming a briefly visible or unauditable RC baseline.
-Fast-ring packages are not overlaid; they remain native RC builds. If stable
-and edge contain a forwardable package with the same versioned filename but
+Fast-ring packages are not overlaid; they remain native RC builds. Ordinary
+advancement reconciles those native destination packages before auditing the
+combined unpublished snapshot, while the one-time bootstrap retains its
+stable baseline until the first regular RC build. If stable and edge contain a
+forwardable package with the same versioned filename but
 different independently built bytes, only the unpublished staged copy may be
 replaced; an existing target Release asset remains immutable and a different
 digest still fails closed.
