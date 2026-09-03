@@ -117,6 +117,17 @@ for settings_package in omarchy-settings omarchy-settings-dev; do
       echo "$settings_package no longer removes cups-files.conf from its package-owned /etc tree" >&2
       exit 1
     }
+  if grep -Eq "etc/systemd/zram-generator\.conf|etc/udev/rules\.d/99-omarchy-(power-profile|wifi-powersave)\.rules" \
+    <(sed -n '/^backup=(/,/^)/p' "$settings_recipe"); then
+    echo "$settings_package lists retired files in backup=()" >&2
+    exit 1
+  fi
+  grep -Fq \
+    'zram-generator: Reads the shipped /usr/lib/systemd/zram-generator.conf.d/90-omarchy.conf drop-in' \
+    "$settings_recipe" || {
+      echo "$settings_package documents the wrong packaged zram-generator path" >&2
+      exit 1
+    }
 done
 if "$ROOT/bin/github-release-aarch64" advance --from stable --to edge \
   >"$work/reverse-advance.out" 2>&1; then
