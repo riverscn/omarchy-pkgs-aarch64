@@ -1,6 +1,6 @@
 # Maintainer: Ryan Hughes <ryan@omarchy.org>
 pkgname='omarchy-dev'
-pkgver=4.0.0.r1983.gc572896
+pkgver=4.0.0.r1987.g4804286
 pkgrel=1
 _pkgver_base=4.0.0
 _pkgver_base_tag=v3.8.2
@@ -67,7 +67,7 @@ if [[ -n "${OMARCHY_SRC:-}" ]]; then
   source=()
   sha256sums=()
 else
-  source=("omarchy::git+https://github.com/riverscn/omarchy-aarch64.git#branch=aarch64-quattro")
+  source=("omarchy::git+https://github.com/riverscn/omarchy-aarch64.git#branch=quattro")
   sha256sums=('SKIP')
 fi
 

@@ -1,165 +1,19 @@
 diff --git a/install/arch-linux/limine-entry-tool/usr/bin/limine-install b/install/arch-linux/limine-entry-tool/usr/bin/limine-install
-index f9491f8..7a4877a 100755
 --- a/install/arch-linux/limine-entry-tool/usr/bin/limine-install
 +++ b/install/arch-linux/limine-entry-tool/usr/bin/limine-install
-@@ -68,8 +68,8 @@ else
- 	}
- fi
- 
--is_x64 || {
--	info_msg "The system is not x86_64."
-+is_supported_uefi_arch || {
-+	info_msg "The system architecture does not have a supported Limine UEFI binary."
- 	exit 0
- }
- 
-@@ -372,17 +372,17 @@ check_limine_config_conflicts
- 
- # Optionally add some bootloaders if they are present on the same ESP
- if [[ "${FIND_BOOTLOADERS:-no}" == "yes" && "${SKIP_UEFI:-no}" == "no" ]]; then
--	bootloader_path="${ESP_PATH}/EFI/systemd/systemd-bootx64.efi"
-+	bootloader_path="${ESP_PATH}/EFI/systemd/${UEFI_SYSTEMD_BOOT_FILE}"
- 	if [[ -f "${bootloader_path}" ]]; then
+@@ -376,7 +376,7 @@ if [[ "${FIND_BOOTLOADERS:-no}" == "yes" && "${SKIP_UEFI:-no}" == "no" ]]; then
  		limine-entry-tool --add-efi "Systemd-boot" "${bootloader_path}" --comment "Systemd bootloader" --priority 20 --quiet --no-mutex --no-hooks
  	fi
  
 -	bootloader_path="${ESP_PATH}/EFI/refind/refind_x64.efi"
-+	bootloader_path="${ESP_PATH}/EFI/refind/${UEFI_REFIND_FILE}"
++	bootloader_path="${ESP_PATH}/EFI/refind/refind_$(limine_efi_arch | tr "[:upper:]" "[:lower:]").efi"
  	if [[ -f "${bootloader_path}" ]]; then
  		limine-entry-tool --add-efi "rEFInd" "${bootloader_path}" --comment "rEFInd bootloader" --priority 20 --quiet --no-mutex --no-hooks
  	fi
- 
--	bootloader_path="${ESP_PATH}/EFI/BOOT/BOOTX64.EFI"
-+	bootloader_path="${ESP_PATH}/EFI/BOOT/${UEFI_FALLBACK_FILE}"
- 	if [[ -f "${bootloader_path}" ]]; then
- 		limine-entry-tool --add-efi "EFI fallback" "${bootloader_path}" --comment "Default EFI loader" --priority 10 --quiet --no-mutex --no-hooks
- 	fi
-diff --git a/install/arch-linux/limine-entry-tool/usr/lib/limine/limine-common-functions b/install/arch-linux/limine-entry-tool/usr/lib/limine/limine-common-functions
-index b56cc30..53952c6 100644
---- a/install/arch-linux/limine-entry-tool/usr/lib/limine/limine-common-functions
-+++ b/install/arch-linux/limine-entry-tool/usr/lib/limine/limine-common-functions
-@@ -55,5 +55,8 @@ is_uefi() {
--is_x64() {
--	[[ "$(uname -m)" == "x86_64" ]]
-+is_supported_uefi_arch() {
-+	case "$(uname -m)" in
-+	x86_64 | aarch64 | arm64) return 0 ;;
-+	*) return 1 ;;
-+	esac
- }
- 
- ### Load key=value config
-@@ -327,7 +330,7 @@ restore_limine_binary() {
- }
- 
- reset_enroll_config() {
--	is_x64 || return 0
-+	is_supported_uefi_arch || return 0
- 	is_uefi || return 0
- 	if restore_limine_binary; then
- 		return 0
-@@ -342,7 +345,7 @@ reset_enroll_config() {
- 
- ### Enroll Limine config into Limine binary file, then sign the binary.
- enroll_config() {
--	is_x64 || return 0
-+	is_supported_uefi_arch || return 0
- 	is_uefi || return 0
- 	restore_limine_binary
- 	if [[ -f "$LIMINE_CONFIG_PATH" && "$ENABLE_ENROLL_LIMINE_CONFIG" == "yes" ]]; then
-@@ -381,22 +384,43 @@ initialize_header() {
- 	check_boot_partition "$ESP_PATH" || return 1
- 	get_machine_id || return 1
- 
-+	local source_file efi_suffix fallback_file systemd_boot_file refind_file
-+	case "$(uname -m)" in
-+	x86_64)
-+		source_file="/usr/share/limine/BOOTX64.EFI"
-+		efi_suffix="x64"
-+		fallback_file="BOOTX64.EFI"
-+		systemd_boot_file="systemd-bootx64.efi"
-+		refind_file="refind_x64.efi"
-+		;;
-+	aarch64 | arm64)
-+		source_file="/usr/share/limine/BOOTAA64.EFI"
-+		efi_suffix="aa64"
-+		fallback_file="BOOTAA64.EFI"
-+		systemd_boot_file="systemd-bootaa64.efi"
-+		refind_file="refind_aa64.efi"
-+		;;
-+	*)
-+		error_msg "Unsupported UEFI architecture: $(uname -m)"
-+		return 1
-+		;;
-+	esac
-+
- 	# Source and target file paths
--	if [[ -n "${LIMINE_BINARY_PATH:-}" ]]; then
--		export BINARY_SOURCE_PATH="$LIMINE_BINARY_PATH"
--	else
--		export BINARY_SOURCE_PATH="/usr/share/limine/BOOTX64.EFI"
--	fi
-+	export BINARY_SOURCE_PATH="${LIMINE_BINARY_PATH:-$source_file}"
- 
- 	export LIMINE_DIR_PATH="${ESP_PATH}/EFI/limine/"
--	export LIMINE_EFI_FILE="limine_x64.efi"
--	export LIMINE_BACKUP_FILE="limine_x64.bak"
-+	export LIMINE_EFI_FILE="limine_${efi_suffix}.efi"
-+	export LIMINE_BACKUP_FILE="limine_${efi_suffix}.bak"
- 
- 	export BINARY_TARGET_PATH="${LIMINE_DIR_PATH}${LIMINE_EFI_FILE}"
- 	export BINARY_BACKUP_PATH="${LIMINE_DIR_PATH}${LIMINE_BACKUP_FILE}"
--	export BINARY_FALLBACK_PATH="${ESP_PATH}/EFI/BOOT/BOOTX64.EFI"
-+	export BINARY_FALLBACK_PATH="${ESP_PATH}/EFI/BOOT/${fallback_file}"
- 
- 	export LIMINE_EFI_PATH="\\EFI\\limine\\${LIMINE_EFI_FILE}"
- 	export LIMINE_CONFIG_PATH="${ESP_PATH}/limine.conf"
-+	export UEFI_SYSTEMD_BOOT_FILE="$systemd_boot_file"
-+	export UEFI_REFIND_FILE="$refind_file"
-+	export UEFI_FALLBACK_FILE="$fallback_file"
- 	return 0
- }
-diff --git a/install/arch-linux/limine-mkinitcpio-hook/etc/pacman.d/hooks/90-mkinitcpio-install.hook b/install/arch-linux/limine-mkinitcpio-hook/etc/pacman.d/hooks/90-mkinitcpio-install.hook
---- a/install/arch-linux/limine-mkinitcpio-hook/etc/pacman.d/hooks/90-mkinitcpio-install.hook
-+++ b/install/arch-linux/limine-mkinitcpio-hook/etc/pacman.d/hooks/90-mkinitcpio-install.hook
-@@ -16,6 +16,7 @@
- Operation = Install
- Operation = Upgrade
- Target = usr/lib/modules/*/pkgbase
-+Target = etc/mkinitcpio.d/*.preset
- 
- [Trigger]
- Type = Package
-diff --git a/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/hooks/60-limine-mkinitcpio-remove-pre.hook b/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/hooks/60-limine-mkinitcpio-remove-pre.hook
---- a/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/hooks/60-limine-mkinitcpio-remove-pre.hook
-+++ b/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/hooks/60-limine-mkinitcpio-remove-pre.hook
-@@ -2,6 +2,7 @@
- Type = Path
- Operation = Remove
- Target = usr/lib/modules/*/pkgbase
-+Target = etc/mkinitcpio.d/*.preset
- 
- [Action]
- Description = Record kernels marked for removal in Limine
-diff --git a/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/hooks/90-limine-mkinitcpio-remove-post.hook b/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/hooks/90-limine-mkinitcpio-remove-post.hook
---- a/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/hooks/90-limine-mkinitcpio-remove-post.hook
-+++ b/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/hooks/90-limine-mkinitcpio-remove-post.hook
-@@ -2,6 +2,7 @@
- Type = Path
- Operation = Remove
- Target = usr/lib/modules/*/pkgbase
-+Target = etc/mkinitcpio.d/*.preset
- 
- [Action]
- Description = Clean Limine boot entries of removed kernels
 diff --git a/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/scripts/limine-mkinitcpio-install b/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/scripts/limine-mkinitcpio-install
 --- a/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/scripts/limine-mkinitcpio-install
 +++ b/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/scripts/limine-mkinitcpio-install
-@@ -16,9 +16,11 @@
- 
- # Initialize global variables
- declare -a PKGBASE_FILES=()
-+declare -A SEEN_KERNEL_DESCRIPTORS=()
+@@ -19,6 +19,7 @@ declare -a KERNEL_DIRS=()
  KERNEL_NAME=""
  KERNEL_VERSION=""
  KERNEL_DIR=""
@@ -167,116 +21,35 @@ diff --git a/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/scripts
  BOOT_KERNEL_DIR=""
  INITRAMFS_FALLBACK_PATH=""
  UKI_PATH=""
-@@ -51,43 +53,86 @@
- 
- resolve_uki_prefix
- 
--# Collect pkgbase files from pacman hook stdin.
-+# Track a pacman-owned descriptor for a kernel. Arch kernels use a pkgbase file;
-+# Arch Linux ARM's generic kernel instead ships only a mkinitcpio preset.
-+add_kernel_descriptor() {
-+	local path="$1"
-+	[[ -f "$path" && -z "${SEEN_KERNEL_DESCRIPTORS[$path]:-}" ]] || return 0
-+	PKGBASE_FILES+=("$path")
-+	SEEN_KERNEL_DESCRIPTORS[$path]=1
-+}
-+
-+collect_all_kernel_descriptors() {
-+	local path
-+	for path in /usr/lib/modules/*/pkgbase /etc/mkinitcpio.d/*.preset; do
-+		add_kernel_descriptor "$path"
-+	done
-+}
-+
-+# Collect kernel descriptor files from pacman hook stdin.
- collect_pkgbase_files() {
- 	local line path
- 	local rebuild_all=false
--	local -A seen_paths=()
- 	while IFS= read -r line; do
--		if [[ "$line" != usr/lib/modules/* ]]; then
-+		if [[ "$line" == usr/lib/modules/* ]]; then
-+			path="/${line/extramodules\//pkgbase}"
-+			add_kernel_descriptor "$path"
-+		elif [[ "$line" == etc/mkinitcpio.d/*.preset ]]; then
-+			add_kernel_descriptor "/$line"
-+		else
- 			rebuild_all=true
- 			# Do not change "continue" to "break", as it causes:
- 			# "unable to write to pipe (Broken pipe)" if reading stops early.
- 			continue
- 		fi
--		path="/${line/extramodules\//pkgbase}"
--		if [[ -z "${seen_paths[$path]:-}" ]]; then
--			PKGBASE_FILES+=("$path")
--			seen_paths[$path]=1
--		fi
- 	done
- 	if $rebuild_all; then
--		PKGBASE_FILES=(/usr/lib/modules/*/pkgbase)
-+		PKGBASE_FILES=()
-+		SEEN_KERNEL_DESCRIPTORS=()
-+		collect_all_kernel_descriptors
- 	fi
- }
- 
- # Set the global kernel context for the current pkgbase.
- set_kernel_context() {
- 	local pkgbase_file="$1"
--	# Read kernel name from pkgbase file
--	KERNEL_NAME="$(<"$pkgbase_file")"
-+	if [[ "$pkgbase_file" == /etc/mkinitcpio.d/*.preset ]]; then
-+		KERNEL_NAME="${pkgbase_file##*/}"
-+		KERNEL_NAME="${KERNEL_NAME%.preset}"
-+		unset ALL_kver
-+		# mkinitcpio presets are shell fragments and are sourced by mkinitcpio too.
-+		# shellcheck disable=SC1090
-+		source "$pkgbase_file"
-+		KERNEL_VERSION="${ALL_kver:-}"
-+		KERNEL_DIR="/usr/lib/modules/${KERNEL_VERSION}"
-+		case "$(uname -m):$KERNEL_NAME" in
-+			aarch64:linux-aarch64 | arm64:linux-aarch64)
-+				KERNEL_NAME=linux
-+				KERNEL_IMAGE=/boot/Image
-+				;;
-+			*)
-+				error_msg "unsupported preset kernel descriptor '${pkgbase_file}', skipping."
-+				return 1
-+				;;
-+		esac
-+		if [[ -z "$KERNEL_VERSION" || ! -d "$KERNEL_DIR" || ! -f "$KERNEL_IMAGE" ]]; then
-+			error_msg "invalid kernel preset '${pkgbase_file}', skipping."
-+			return 1
-+		fi
-+	else
-+		# Read kernel name from pkgbase file
-+		KERNEL_NAME="$(<"$pkgbase_file")"
-+		# Read kernel version from the parent directory of the pkgbase file
-+		KERNEL_DIR="${pkgbase_file%/pkgbase}"
-+		KERNEL_VERSION="${KERNEL_DIR##*/}"
-+		KERNEL_IMAGE="${KERNEL_DIR}/vmlinuz"
+@@ -107,6 +108,19 @@ set_kernel_context() {
+ 	# Get kernel version from the kernel directory
+ 	KERNEL_DIR="${kernel_dir%/}"
+ 	KERNEL_VERSION="${KERNEL_DIR##*/}"
++	KERNEL_IMAGE="${KERNEL_DIR}/vmlinuz"
++	# Arch Linux ARM's generic kernel owns modules.builtin like an Arch kernel,
++	# but its boot image lives on the ESP and its user-facing entry is `linux`.
++	case "$(uname -m):${KERNEL_NAME}" in
++		aarch64:linux-aarch64 | arm64:linux-aarch64)
++			KERNEL_NAME=linux
++			KERNEL_IMAGE=/boot/Image
++			;;
++	esac
++	if [[ ! -f "$KERNEL_IMAGE" ]]; then
++		error_msg "kernel image '${KERNEL_IMAGE}' does not exist, skipping."
++		return 1
 +	fi
- 	# Remove all spaces that are invalid in FAT32 names to create kernel file or directory
- 	KERNEL_NAME="${KERNEL_NAME// /}"
- 	if [[ -z "${KERNEL_NAME}" ]]; then
- 		error_msg "kernel name of '${pkgbase_file}' is empty, skipping."
- 		return 1
- 	fi
--	# Read kernel version from the parent directory of the pkgbase file
--	KERNEL_DIR="${pkgbase_file%/pkgbase}"
--	KERNEL_VERSION="${KERNEL_DIR##*/}"
  	# kernel locations
  	BOOT_KERNEL_DIR="${BOOT_PATH}/${MACHINE_ID}/${KERNEL_NAME}"
  	INITRAMFS_FALLBACK_PATH="${BOOT_KERNEL_DIR}/initramfs-fallback"
-@@ -126,6 +171,7 @@
+@@ -145,6 +159,7 @@ build_uki() {
  		args+=(--no-cmdline)
  	fi
  	args+=(--uki "$output")
-+	[[ -z "$KERNEL_IMAGE" ]] || args+=(--kernelimage "$KERNEL_IMAGE")
++	args+=(--kernelimage "$KERNEL_IMAGE")
  	if [[ "$is_fallback" == true ]]; then
  		args+=(-S autodetect)
  	fi
-@@ -216,7 +262,7 @@
+@@ -235,7 +250,7 @@ process_regular_kernel() {
  	if [[ -f "$BOOT_KERNEL_DIR/initramfs-${KERNEL_NAME}" ]]; then
  		rm -r "$BOOT_KERNEL_DIR"
  	fi
@@ -285,7 +58,7 @@ diff --git a/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/scripts
  
  	if [[ "${MKINITCPIO_FALLBACK:-}" == "yes" || "${MKINITCPIO_FALLBACK:-}" == "$KERNEL_NAME" ]]; then
  		info_msg "Building fallback initramfs for ${KERNEL_NAME} (${KERNEL_VERSION})"
-@@ -225,7 +271,7 @@
+@@ -244,7 +259,7 @@ process_regular_kernel() {
  			error_msg "mkinitcpio failed for kernel ${KERNEL_VERSION}, skipping."
  			return 1
  		fi
@@ -297,109 +70,39 @@ diff --git a/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/scripts
 diff --git a/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/scripts/limine-mkinitcpio-remove b/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/scripts/limine-mkinitcpio-remove
 --- a/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/scripts/limine-mkinitcpio-remove
 +++ b/install/arch-linux/limine-mkinitcpio-hook/usr/share/libalpm/scripts/limine-mkinitcpio-remove
-@@ -10,6 +10,20 @@
+@@ -10,6 +10,14 @@ readonly SCRIPT_NAME="limine-mkinitcpio-remove"
  export HOOK_CALLER="$SCRIPT_NAME"
  export HOOK_CMDLINE="$*"
  
-+kernel_name_from_descriptor() {
-+	local descriptor="$1" kernel_name
-+	if [[ "$descriptor" == */mkinitcpio.d/*.preset ]]; then
-+		kernel_name="${descriptor##*/}"
-+		kernel_name="${kernel_name%.preset}"
-+		case "$(uname -m):$kernel_name" in
-+			aarch64:linux-aarch64 | arm64:linux-aarch64) kernel_name=linux ;;
-+		esac
-+	else
-+		kernel_name="$(<"$descriptor")"
-+	fi
++normalize_kernel_name() {
++	local kernel_name="$1"
++	case "$(uname -m):${kernel_name}" in
++		aarch64:linux-aarch64 | arm64:linux-aarch64) kernel_name=linux ;;
++	esac
 +	printf '%s\n' "$kernel_name"
 +}
 +
  # Record kernels marked for removal before pacman upgrade,
  # ensuring boot entries are preserved if the upgrade fails.
  pre_remove() {
-@@ -18,10 +32,10 @@
+@@ -25,6 +33,7 @@ pre_remove() {
  
- 	# Read stdin from the libalpm hook
- 	while read -r targetLine; do
--		# Match only pkgbase files in /usr/lib/modules/*/pkgbase
--		if [[ "$targetLine" == */pkgbase ]]; then
-+		# Match Arch pkgbase files and Arch Linux ARM mkinitcpio presets.
-+		if [[ "$targetLine" == */pkgbase || "$targetLine" == */mkinitcpio.d/*.preset ]]; then
- 			if [[ -f "$targetLine" ]]; then
--				kernelName="$(<"$targetLine")"
-+				kernelName=$(kernel_name_from_descriptor "$targetLine")
- 				# Append to remove list
- 				echo "$kernelName" >>"$REMOVE_LIST"
- 			fi
-@@ -50,7 +64,13 @@
+ 		[[ -f "${kernel_dir}/modules.builtin" ]] || continue
+ 		kernel_name="$(pacman -Qqo "${kernel_dir}/modules.builtin" 2>/dev/null)" || continue
++		kernel_name="$(normalize_kernel_name "$kernel_name")"
+ 		[[ -n "$kernel_name" ]] || continue
+ 
+ 		# Append to remove list
+@@ -53,7 +62,11 @@ post_remove() {
  		return "$rc"
  	fi
  
--	valid_kernels=$(pacman -Qqo /usr/lib/modules/*/pkgbase 2>/dev/null || true)
+-	valid_kernels=$(pacman -Qqo /usr/lib/modules/*/modules.builtin 2>/dev/null || true)
 +	valid_kernels=$(
-+		for descriptor in /usr/lib/modules/*/pkgbase /etc/mkinitcpio.d/*.preset; do
-+			[[ -f "$descriptor" ]] || continue
-+			pacman -Qqo "$descriptor" &>/dev/null || continue
-+			kernel_name_from_descriptor "$descriptor"
-+		done | sort -u
++		while read -r kernel_name; do
++			normalize_kernel_name "$kernel_name"
++		done < <(pacman -Qqo /usr/lib/modules/*/modules.builtin 2>/dev/null || true)
 +	)
  	while read -r kernelName; do
  		# Remove spaces (invalid for kernel file/directory name in FAT32)
  		kernelNameClean="${kernelName// /}"
-@@ -58,7 +78,7 @@
- 		# Skip empty lines
- 		[[ -z "${kernelNameClean}" ]] && continue
- 
--		# If kernel no longer exists in pacman-owned /usr/lib/modules/*/pkgbase
-+		# If kernel no longer exists in a pacman-owned descriptor
- 		if ! grep -qx "$kernelName" <<<"$valid_kernels"; then
- 			info_msg "Removed unused Limine boot entry: ${kernelName}"
- 			# Safely remove boot entries of the kernel
-+diff --git a/src/main/java/org/limine/entry/tool/Main.java b/src/main/java/org/limine/entry/tool/Main.java
-index 36f636d..40fce4a 100644
---- a/src/main/java/org/limine/entry/tool/Main.java
-+++ b/src/main/java/org/limine/entry/tool/Main.java
-@@ -280,8 +280,8 @@ public final class Main {
-     }
- 
-     private static void addUki(String kernelName, String comment, EntryOptions kernelEntryOptions, String ukiFilePath) throws IOException {
--        if (!Utility.isSystemAmd64()) {
--            exitWithError("Your system is not using x86_64 architecture");
-+        if (!Utility.isSystemEfiArchitecture()) {
-+            exitWithError("Your system architecture does not support UEFI");
-         }
-         if (!Utility.isSystemEfi()) {
-             exitWithError("Your system is not using EFI mode");
-@@ -311,8 +311,8 @@ public final class Main {
-     }
- 
-     private static void addEfi(String efiName, String comment, EntryOptions kernelEntryOptions, String efiFilePath, boolean shouldCheckDevice) throws IOException {
--        if (shouldCheckDevice && !Utility.isSystemAmd64()) {
--            exitWithError("Your system is not using x86_64 architecture");
-+        if (shouldCheckDevice && !Utility.isSystemEfiArchitecture()) {
-+            exitWithError("Your system architecture does not support UEFI");
-             return;
-         }
-         if (shouldCheckDevice && !Utility.isSystemEfi()) {
-diff --git a/src/main/java/org/limine/entry/tool/processes/Utility.java b/src/main/java/org/limine/entry/tool/processes/Utility.java
-index 82cdbbc..6634ea6 100644
---- a/src/main/java/org/limine/entry/tool/processes/Utility.java
-+++ b/src/main/java/org/limine/entry/tool/processes/Utility.java
-@@ -570,6 +570,16 @@ public final class Utility {
-     }
- 
- 
-+    /**
-+     * Check if the system architecture has a Limine UEFI binary.
-+     */
-+    public static boolean isSystemEfiArchitecture() {
-+        String arch = System.getProperty("os.arch").toLowerCase();
-+        return arch.equals("x86_64") || arch.equals("amd64")
-+                || arch.equals("aarch64") || arch.equals("arm64");
-+    }
-+
-+
-     /**
-      * Validates if the given path is a valid boot partition using FAT32.
-      *

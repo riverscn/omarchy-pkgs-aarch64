@@ -173,15 +173,18 @@ grep -Fq 'if [[ $CARCH == x86_64 ]]; then' \
   exit 1
 }
 
-# Ghostty fetches a pinned Zig dependency graph before building. A transient
-# mirror failure must be retried, but never indefinitely.
+# Ghostty must use the pinned AArch64 Zig binary for both dependency resolution
+# and compilation. Keep the exact upstream-command guard, without changing the
+# upstream download policy.
 ghostty_pkgbuild="$ROOT/pkgbuilds/ghostty/PKGBUILD"
 ghostty_post_sync="$ROOT/pkgbuilds/ghostty/.omarchy/post-sync.sh"
 for recipe in "$ghostty_pkgbuild" "$ghostty_post_sync"; do
-  grep -Fq 'for attempt in 1 2 3' "$recipe" &&
+  grep -Fq 'local zig_path=$PATH' "$recipe" &&
+    grep -Fq 'zig-aarch64-linux-$_zig_version:$PATH' "$recipe" &&
+    grep -Fq 'PATH="$zig_path" ZIG_GLOBAL_CACHE_DIR=' "$recipe" &&
     grep -Fq 'fetch-zig-cache.sh' "$recipe" &&
-    grep -Fq 'attempt < 3' "$recipe" || {
-    echo "Ghostty lacks a persistent bounded dependency-fetch retry: $recipe" >&2
+    ! grep -Fq 'for attempt in 1 2 3' "$recipe" || {
+    echo "Ghostty does not preserve the architecture-only Zig selection: $recipe" >&2
     exit 1
   }
 done
@@ -190,6 +193,34 @@ grep -Fq 'Upstream Ghostty dependency-fetch command changed' "$ghostty_post_sync
   exit 1
 }
 
+# PPSSPP's upstream assets-path patch predates the pinned source revision.
+# Preserve the exact rebased patch after sync, but only from the reviewed old
+# baseline so a future upstream change fails closed.
+ppsspp_dir="$ROOT/pkgbuilds/libretro-ppsspp"
+cmp -s "$ppsspp_dir/libretro-ppsspp-assets-path.patch" \
+  "$ppsspp_dir/.omarchy/libretro-ppsspp-assets-path.patch" || {
+  echo 'PPSSPP does not persist its rebased assets patch across sync' >&2
+  exit 1
+}
+ppsspp_rebased_digest=d23da7c7b52de9dbc9a72ea05f52071843853f423421bfdbcd56334bcd11d210bc83b177d92b0e752b84be18685f4d78f224cf84c246da271946a3f14e72652d
+printf '%s  %s\n' "$ppsspp_rebased_digest" \
+  "$ppsspp_dir/libretro-ppsspp-assets-path.patch" |
+  b2sum --check --status || {
+  echo 'PPSSPP rebased assets patch does not match its reviewed digest' >&2
+  exit 1
+}
+grep -Fq "$ppsspp_rebased_digest" "$ppsspp_dir/PKGBUILD" || {
+  echo 'PPSSPP PKGBUILD does not pin the rebased assets patch' >&2
+  exit 1
+}
+for digest in \
+  b46c8f4a147f1b8fddb8664982c4568e9cac74afad65cb16adbccaba26b93baf0f59dd51693a422bd64782c4a95cf8e2ff55e848701b2fb1e1e785ca611d1dc6 \
+  "$ppsspp_rebased_digest"; do
+  grep -Fq "$digest" "$ppsspp_dir/.omarchy/post-sync.sh" || {
+    echo "PPSSPP post-sync lacks a reviewed patch digest: $digest" >&2
+    exit 1
+  }
+done
 # LM Studio's asset path contains the AUR/vendor pkgrel. Omarchy's local
 # rebuild suffix must not change that vendor URL.
 grep -Eq '^_vendor_pkgrel=[0-9]+$' "$ROOT/pkgbuilds/lmstudio-bin/PKGBUILD" &&
@@ -438,9 +469,10 @@ for package in heroic-games-launcher-bin rustdesk voxtype-bin; do
   }
 done
 
-# Limine's AUR recipe already compiles on ARM but its installed shell runtime
-# assumes x86_64 UEFI filenames and Arch's /usr/lib/modules/*/pkgbase layout.
-# Keep the runtime correction package-local and make it survive every AUR sync.
+# Limine 1.38 gained native multi-architecture UEFI selection. The remaining
+# package-local correction maps Arch Linux ARM's generic kernel package to its
+# /boot/Image and stable `linux` entry name, and fixes rEFInd's AA64 filename.
+# Keep only that residual delta and make it survive every AUR sync.
 limine_dir="$ROOT/pkgbuilds/limine-mkinitcpio-hook"
 jq -e '.source == "aur"' "$limine_dir/.omarchy/package.json" >/dev/null || {
   echo 'Limine no longer follows its AUR source' >&2
@@ -463,8 +495,12 @@ grep -Fq "$limine_patch_sum" \
   echo 'Limine AUR synchronization would write a stale runtime patch checksum' >&2
   exit 1
 }
-for invariant in BOOTAA64.EFI 'etc/mkinitcpio.d/*.preset' is_supported_uefi_arch; do
-  grep -Fq "$invariant" "$limine_dir/limine-entry-tool-aarch64.patch" || {
+for invariant in \
+  'aarch64:linux-aarch64' \
+  'KERNEL_IMAGE=/boot/Image' \
+  '--kernelimage "$KERNEL_IMAGE"' \
+  'refind_$(limine_efi_arch'; do
+  grep -Fq -- "$invariant" "$limine_dir/limine-entry-tool-aarch64.patch" || {
     echo "Limine runtime patch lost AArch64 invariant: $invariant" >&2
     exit 1
   }
@@ -475,6 +511,10 @@ if grep -R -q 'LIMINE_FORCE_UEFI' "$limine_dir"; then
 fi
 grep -Eq '^pkgrel=[0-9]+\.2$' "$limine_dir/PKGBUILD" || {
   echo 'Limine runtime patch does not carry an Omarchy package revision' >&2
+  exit 1
+}
+grep -Fq '_pkgver=1.38.0' "$limine_dir/PKGBUILD" || {
+  echo 'Limine must retain the upstream release that absorbed generic AArch64 UEFI support' >&2
   exit 1
 }
 
@@ -638,7 +678,7 @@ settings_commit=$(sed -n "s/^_commit='\([^']*\)'/\1/p" "$ROOT/pkgbuilds/omarchy-
   exit 1
 }
 for development_package in omarchy-dev omarchy-settings-dev; do
-  grep -Fq 'git+https://github.com/riverscn/omarchy-aarch64.git#branch=aarch64-quattro' \
+  grep -Fq 'git+https://github.com/riverscn/omarchy-aarch64.git#branch=quattro' \
     "$ROOT/pkgbuilds/$development_package/PKGBUILD" || {
     echo "$development_package does not follow the adapted AArch64 quattro branch" >&2
     exit 1
@@ -651,6 +691,56 @@ for development_package in omarchy-dev omarchy-settings-dev; do
 done
 grep -Eq "^[[:space:]]+'omarchy-aarch64-keyring'$" "$ROOT/pkgbuilds/omarchy-dev/PKGBUILD" || {
   echo "The edge runtime can orphan the AArch64 repository keyring" >&2
+  exit 1
+}
+
+runtime_profile="$ROOT/pkgbuilds/omarchy-aarch64-config"
+jq -e '.source == "local" and .release_ring == "fast"' \
+  "$runtime_profile/.omarchy/package.json" >/dev/null || {
+  echo "The AArch64 runtime profile is not built natively for every release channel" >&2
+  exit 1
+}
+grep -Fq '/usr/share/omarchy/system/excluded-packages' "$runtime_profile/PKGBUILD" || {
+  echo "The AArch64 runtime profile does not install its package exclusions" >&2
+  exit 1
+}
+grep -Fq '/usr/share/omarchy/system/package-replacements' "$runtime_profile/PKGBUILD" || {
+  echo "The AArch64 runtime profile does not install its package replacements" >&2
+  exit 1
+}
+if grep -Eq 'omarchy-menu|shell-defaults|hyprland\.lua|depends=.*jq' "$runtime_profile/PKGBUILD"; then
+  echo "The AArch64 package policy still owns desktop or menu behavior" >&2
+  exit 1
+fi
+if [[ -e $runtime_profile/omarchy-menu.jsonc || -e $runtime_profile/shell-defaults.jq || \
+  -e $runtime_profile/hyprland.lua ]]; then
+  echo "The AArch64 package policy still ships retired desktop overlays" >&2
+  exit 1
+fi
+grep -Fxq 'qemu-user-static-binfmt' "$runtime_profile/excluded-packages" || {
+  echo "The native-only AArch64 profile no longer excludes QEMU user emulation" >&2
+  exit 1
+}
+diff -u \
+  <(printf '%s\n' gpu-screen-recorder obs-studio qemu-user-static-binfmt | sort) \
+  <(sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' \
+    "$runtime_profile/excluded-packages" | sort) || {
+  echo "The AArch64 package policy excludes a supported upstream default" >&2
+  exit 1
+}
+grep -Fxq 'nvim neovim' "$runtime_profile/package-replacements" || {
+  echo "The AArch64 package policy does not replace the unavailable nvim package name" >&2
+  exit 1
+}
+grep -Fxq 'dotnet-runtime dotnet-runtime-bin' "$runtime_profile/package-replacements" || {
+  echo "The AArch64 package policy does not select the maintained .NET provider" >&2
+  exit 1
+}
+(
+  cd "$runtime_profile"
+  makepkg --verifysource --noconfirm >/dev/null
+) || {
+  echo "The AArch64 package policy does not pin its local payload checksum" >&2
   exit 1
 }
 grep -Fq '[[ $ARCH == aarch64 && $(uname -m) == aarch64 ]]' "$ROOT/bin/sign" || {

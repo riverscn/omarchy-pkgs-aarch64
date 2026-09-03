@@ -132,13 +132,18 @@ configured_scope_packages() {
   sed -E '/^[[:space:]]*(#|$)/d' "$SCOPE" "$FORK_SCOPE"
 }
 
-repository_scope_packages() {
-  local package pkgdir
+channel_scope_packages() {
+  local scope_file=$1 package pkgdir
   while IFS= read -r package; do
     pkgdir="$BUILD_ROOT/pkgbuilds/$package"
     package_in_channel "$pkgdir" "$CHANNEL" && printf '%s\n' "$package"
-  done < <(configured_scope_packages)
+  done < <(sed -E '/^[[:space:]]*(#|$)/d' "$scope_file")
   return 0
+}
+
+repository_scope_packages() {
+  channel_scope_packages "$SCOPE"
+  channel_scope_packages "$FORK_SCOPE"
 }
 
 build_scope_packages() {
@@ -181,8 +186,8 @@ validate_scope() {
 
 write_channel_scope() {
   mkdir -p "$REPO_DIR"
-  repository_scope_packages > "$CHANNEL_SCOPE"
-  : > "$CHANNEL_FORK_SCOPE"
+  channel_scope_packages "$SCOPE" > "$CHANNEL_SCOPE"
+  channel_scope_packages "$FORK_SCOPE" > "$CHANNEL_FORK_SCOPE"
 }
 
 require_native_arm() {

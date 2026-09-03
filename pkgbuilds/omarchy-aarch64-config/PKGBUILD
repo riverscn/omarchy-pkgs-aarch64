@@ -1,0 +1,24 @@
+# Maintainer: Shun Li <riverscn@gmail.com>
+
+pkgname=omarchy-aarch64-config
+pkgver=1
+pkgrel=2
+pkgdesc='Upgradeable package policy for Omarchy AArch64 virtual machines'
+arch=('any')
+url='https://github.com/riverscn/omarchy-pkgs-aarch64'
+license=('MIT')
+source=(
+  'excluded-packages'
+  'package-replacements'
+)
+sha256sums=(
+  '1093b43a536216a8c451c1403033c813a15afdce1373706ca72d142513eccac9'
+  'b584f2358f6b1d824405c5b63a3bd3f95081bb1253b4cd13d3562a2bea019133'
+)
+
+package() {
+  install -Dm644 excluded-packages \
+    "$pkgdir/usr/share/omarchy/system/excluded-packages"
+  install -Dm644 package-replacements \
+    "$pkgdir/usr/share/omarchy/system/package-replacements"
+}

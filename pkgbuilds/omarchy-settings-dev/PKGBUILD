@@ -1,6 +1,6 @@
 # Maintainer: Ryan Hughes <ryan@omarchy.org>
 pkgname='omarchy-settings-dev'
-pkgver=4.0.0.r1983.gc572896
+pkgver=4.0.0.r1987.g4804286
 pkgrel=1
 _pkgver_base=4.0.0
 _pkgver_base_tag=v3.8.2
@@ -64,11 +64,8 @@ backup=(
   'etc/systemd/system.conf.d/20-omarchy-nofile.conf'
   'etc/systemd/user.conf.d/20-omarchy-nofile.conf'
   'etc/systemd/oomd.conf.d/10-omarchy.conf'
-  'etc/systemd/zram-generator.conf'
   'etc/sddm.conf.d/10-theme.conf'
   'etc/sddm.conf.d/10-wayland.conf'
-  'etc/udev/rules.d/99-omarchy-power-profile.rules'
-  'etc/udev/rules.d/99-omarchy-wifi-powersave.rules'
 )
 
 optdepends=(
@@ -78,7 +75,7 @@ optdepends=(
   'limine: Bootloader the shipped /etc/mkinitcpio.conf.d/ and /etc/limine-entry-tool.d/ drop-ins are for'
   'limine-mkinitcpio-hook: Picks up the shipped /etc/mkinitcpio.conf.d/omarchy_hooks.conf'
   'limine-snapper-sync: Boot-entry sync for snapper snapshots'
-  'zram-generator: Reads the shipped /etc/systemd/zram-generator.conf to create the compressed swap device'
+  'zram-generator: Reads the shipped /usr/lib/systemd/zram-generator.conf.d/90-omarchy.conf drop-in'
   'snapper: Used with the shipped /etc/snapper/config-templates/omarchy template'
 )
 
@@ -102,7 +99,7 @@ if [[ -n "${OMARCHY_SRC:-}" ]]; then
   source=()
   sha256sums=()
 else
-  source=("omarchy::git+https://github.com/riverscn/omarchy-aarch64.git#branch=aarch64-quattro")
+  source=("omarchy::git+https://github.com/riverscn/omarchy-aarch64.git#branch=quattro")
   sha256sums=('SKIP')
 fi
 

@@ -30,9 +30,9 @@ each exception can be reviewed, updated, or removed with its package.
 
 ## Current upstream-delta audit
 
-The package deltas were re-audited on 2026-08-31 against
-`omacom-io/omarchy-pkgs` commit `28a4cfc6626801398b5748e0793509f5a19f6aeb`
-(the current master, two commits after the Omarchy 4.0.2 release). The review covered every package directory changed
+The package deltas were re-audited through 2026-09-03 against
+`omacom-io/omarchy-pkgs` commit `b0cba5bf8b53f0c6c3387ce6054451131d280ac9`.
+The review covered every package directory changed
 relative to that revision, not only the packages that had failed an earlier
 build. Current AUR heads were also checked for every changed or added
 AUR-backed recipe. Updated recipes were synchronized before re-running the
@@ -56,9 +56,11 @@ justification:
   of retaining the previous `4.0.1.r...` fork revision.
 - The stable `omarchy-settings` recipe preserves upstream's staging of
   `/etc/cups/cups-files.conf` under `/usr/share/omarchy/etc-overrides` instead
-  of owning the live path already provided by Arch's `cups` package. The
-  synchronized stable runtime pair uses `pkgrel=2` so this packaging correction
-  upgrades any earlier `4.0.2-1` build.
+  of owning the live path already provided by Arch's `cups` package. That
+  correction shipped as `4.0.2-2`; the synchronized runtime pair now uses
+  `4.0.2-4` and pins immutable source tag `v4.0.2-aarch64.3`. This revision
+  removes downstream desktop policy while retaining the AArch64 repository
+  and package-policy migration for existing users.
 - `github-copilot-cli` dropped its stale `pkgrel` suffix metadata when its AUR
   `pkgver` advanced. The ordinary local `.1` rebuild suffix is sufficient for
   the new version.
@@ -99,11 +101,56 @@ The currently published AArch64 repositories already contain `0.28.0-2.1` and
 build sort below installed systems. `bin/sync-aur` removes that metadata
 automatically when either package advances to a new `pkgver`.
 
-The shared AArch64 scope continues to replace the 20 explicitly unsupported
-upstream package bases with 20 reviewed additions, keeping the package-base
-count aligned with upstream. `omarchy-aarch64-keyring` and
-`omarchy-spice-guest-tools` remain separately identified downstream additions;
-they are not presented as general architecture enablement.
+- PPSSPP's generic assets-path patch was rebased against the pinned libretro
+  source revision. Its install path is unchanged, but it now applies without
+  fuzz. The package-local post-sync hook preserves that exact replacement only
+  when the fetched upstream patch still matches the reviewed old digest; a new
+  upstream baseline therefore stops for review instead of silently restoring
+  the stale hunk.
+
+### Upstream additions reviewed on 2026-09-01
+
+Merging upstream commit `a3d150e2b02c05fa5f7736d82bd42839516d2a3f`
+introduced or restored five package bases. `python-sounddevice` declares
+`arch=(any)`, has no native payload, and is included in the shared AArch64
+scope without a downstream recipe change. The remaining four are deliberately
+excluded until their native paths are proved:
+
+| Package base | Current blocker |
+| --- | --- |
+| `python-mediapipe` | The upstream recipe downloads and executes `bazel-7.4.1-linux-x86_64`, declares only x86_64, and depends on `python-tensorflow`. A native Bazel/toolchain and dependency closure must be validated before enabling it. |
+| `link-studio` | The source itself is plausibly portable, but its required `python-mediapipe` dependency is not yet available in the AArch64 package scope. |
+| `omakade` | The Qt/CMake source recipe declares only x86_64. It may be enabled after a clean native AArch64 build and payload audit. |
+| `omapresent` | Upstream explicitly describes AArch64 as plausible but unproven. Its Qt WebEngine build and resulting payload require the same native validation. |
+
+These are tracked capability gaps, not replacement slots. The maintained scope
+follows every upstream package whose AArch64 recipe and dependency closure are
+actually validated; it is not padded with unrelated packages merely to keep a
+historical package count equal to x86_64.
+
+### Upstream addition reviewed on 2026-09-02
+
+Upstream commit `22e908d831f1e3b494abd018f14f9a66e942d5af` adds
+`perplexity`. Its vendor repository publishes matching amd64 and arm64 Debian
+packages, the recipe pins independent checksums for both, and its package
+metadata places it in the fast ring. It therefore enters the shared AArch64
+scope unchanged; no architecture patch or audit exception is required.
+
+The shared AArch64 scope retains the 20 reviewed coverage additions selected
+during the original alignment. `omarchy-aarch64-keyring`,
+`omarchy-aarch64-config`, and `omarchy-spice-guest-tools` remain separately
+identified downstream additions; they are not presented as general
+architecture enablement. The config package carries only upgradeable package
+exclusions and requested-name replacements used during a default-package
+reinstall. It intentionally does not override the upstream menu, shell layout,
+or Hyprland keybindings.
+
+The VM exclusion list is limited to `gpu-screen-recorder`, `obs-studio`, and
+`qemu-user-static-binfmt`. The first two do not yet have a validated runtime in
+the generic AArch64 VM profile; the last is emulation and is deliberately not
+part of the native-only design. Previously omitted upstream defaults that are
+available from Arch Linux ARM or the signed AArch64 repository are installed
+normally.
 
 All 20 shared additions remain absent from the audited upstream 4.0.2 tree, so
 none has become a duplicate that can simply be removed. They do not all have
@@ -153,7 +200,7 @@ payload or audit error. Neither build used QEMU or binfmt emulation.
 | `asdcontrol` | The upstream recipe unnecessarily restricts the package to x86_64. | `post-sync.sh` extends the architecture declaration only. |
 | `cursor-bin` | ARM64 uses the vendor Debian bundle, while the x86_64 recipe repackages against system Electron. The ARM bundle also contains a Windows x64 JS-debug native module. | `post-sync.sh` adds the ARM source, computes its checksum during sync, separates dependencies, installs the vendor bundle through an ARM-only package function, and removes Windows-only JS-debug modules. |
 | `cursor-cli` | The vendor's ARM64 archive contains a working native `tree-sitter-bash` binding but also bundles unused x86_64, Windows, and macOS prebuilds. | An AUR-sync recipe patch verifies the native binding and removes the foreign prebuild directory only from the AArch64 package. The x86_64 package path is unchanged. |
-| `ghostty` | The Arch Linux ARM toolchain does not supply the same Zig input expected by the upstream recipe. | `post-sync.sh` adds a pinned upstream AArch64 Zig archive and selects it only for the ARM build. The upstream dependency-cache fetch is retried at most three times so a transient download failure does not invalidate an otherwise reproducible build. |
+| `ghostty` | The Arch Linux ARM toolchain does not supply the same Zig input expected by the upstream recipe. | `post-sync.sh` adds a pinned upstream AArch64 Zig archive and selects it only for dependency resolution and the ARM build. |
 | `github-copilot-cli` | The vendor artifact supports ARM64 but the AUR architecture list is narrower, and its ARM npm payload also retains x64 Linux search helpers alongside native copies. | `post-sync.sh` extends the architecture declaration. A recipe patch requires the ARM64 core runtime, native addons, `rg`, and `tgrep`, then removes only the x64 Linux search helpers on AArch64. |
 | `grok-bot` | Vendor download paths and archives differ by architecture. | `post-sync.sh` adds the ARM64 Debian source and computes its checksum during sync. |
 | `heroic-games-launcher-bin` | The AUR package follows Heroic's x86_64 archive, but Heroic does not publish a Linux ARM64 application artifact. Two x86_64 Windows shims are intentional runtime data for its Wine integrations. | A recipe patch preserves the AUR x86_64 path and builds the same tag from source for ARM64. Its `post-sync.sh` scopes the AUR artifact to x86_64, pins the ARM source checksum, and stops for review if Heroic changes any helper-binary version. The two Wine shims are retained only under exact path-and-digest audit entries. |
@@ -164,7 +211,7 @@ payload or audit error. Neither build used QEMU or binfmt emulation.
 | `libretro-kronos` | The core needs ARM64 platform and CD-ROM feature flags. | `post-sync.sh` injects those make options only for AArch64. |
 | `libretro-ppsspp` | Adreno-specific code is not valid for the generic Linux ARM64 target. | `post-sync.sh` applies the package-local exclusion patch and selects the ARM64 make target. |
 | `libretro-uae-git` | AArch64 is already supported by the source build but omitted from the recipe. | `post-sync.sh` extends the architecture declaration. |
-| `limine-mkinitcpio-hook` | The AUR recipe can compile on AArch64, but its installed runtime selects x86_64 UEFI filenames and discovers kernels only through Arch's `pkgbase` files. | A recipe patch carries a checksum-pinned runtime patch, while `post-sync.sh` restores that source patch after AUR synchronization. The runtime selects `BOOTAA64.EFI` and ARM bootloader filenames and accepts Arch Linux ARM kernel presets. |
+| `limine-mkinitcpio-hook` | Upstream 1.38 now selects the correct Limine UEFI binary on AArch64. Arch Linux ARM's generic kernel still uses the package name `linux-aarch64` and `/boot/Image`, while Limine expects an Arch-style kernel name and module-tree `vmlinuz`; its rEFInd probe also remains x64-specific. | The reduced recipe patch carries only those residual corrections: it maps the generic kernel to the stable `linux` entry and `/boot/Image`, passes that image explicitly to mkinitcpio, normalizes removal bookkeeping, and selects rEFInd's AA64 filename. `post-sync.sh` restores the checksum-pinned patch after AUR synchronization. |
 | `lmstudio-bin` | The vendor ships architecture-specific AppImages and includes its own release revision in the asset path. | `post-sync.sh` selects the ARM64 asset, computes its checksum during sync, and keeps the vendor revision separate from Omarchy's local `pkgrel` suffix. The generic auditor recursively opens the embedded SquashFS without executing the AppImage runtime. |
 | `omasnap` | The source build supports ARM64 but the recipe declaration is narrower. | `post-sync.sh` extends the architecture declaration. |
 | `qmk-hid` | The source build supports ARM64 but the recipe declaration is narrower. | `post-sync.sh` extends the architecture declaration. |

@@ -14,12 +14,12 @@ mkdir -p "$metadata_work"
 mapfile -t upstream_packages < <(sed -E '/^[[:space:]]*(#|$)/d' "$scope")
 mapfile -t fork_packages < <(sed -E '/^[[:space:]]*(#|$)/d' "$fork_scope")
 packages=("${upstream_packages[@]}" "${fork_packages[@]}")
-[[ ${#upstream_packages[@]} -eq 116 ]] || {
-  echo "Expected the same 116 package bases as upstream edge; found ${#upstream_packages[@]}" >&2
+[[ ${#upstream_packages[@]} -eq 118 ]] || {
+  echo "Expected the reviewed 118-base upstream AArch64 edge scope; found ${#upstream_packages[@]}" >&2
   exit 1
 }
-[[ ${#packages[@]} -eq 118 ]] || {
-  echo "Expected 116 upstream edge package bases plus 2 fork additions; found ${#packages[@]}" >&2
+[[ ${#packages[@]} -eq 121 ]] || {
+  echo "Expected 118 upstream AArch64 bases plus 3 fork additions; found ${#packages[@]}" >&2
   exit 1
 }
 
@@ -32,10 +32,38 @@ assert_scope_count() {
   }
 }
 
-assert_scope_count scope edge 118
-assert_scope_count scope rc 116
-assert_scope_count scope stable 116
-assert_scope_count build-scope edge 118
+assert_scope_count scope edge 121
+assert_scope_count scope rc 119
+assert_scope_count scope stable 119
+assert_scope_count build-scope edge 121
+
+# A staged release must retain the review boundary between the upstream-aligned
+# scope and the fork-only overlay. A combined 121-entry file produces the same
+# repository but loses the evidence that only three package bases are downstream.
+adapter_root="$work/adapter-root"
+mkdir -p "$adapter_root/bin"
+cp "$ROOT/bin/github-release-aarch64" "$adapter_root/bin/"
+ln -s "$ROOT/config" "$adapter_root/config"
+ln -s "$ROOT/helpers" "$adapter_root/helpers"
+ln -s "$ROOT/pkgbuilds" "$adapter_root/pkgbuilds"
+"$adapter_root/bin/github-release-aarch64" seed --channel edge --no-baseline >/dev/null
+mapfile -t staged_upstream_scope < \
+  "$adapter_root/pkgs.omarchy.org/edge/aarch64/.channel-package-scope"
+mapfile -t staged_fork_scope < \
+  "$adapter_root/pkgs.omarchy.org/edge/aarch64/.channel-fork-scope"
+[[ ${#staged_upstream_scope[@]} -eq ${#upstream_packages[@]} ]] || {
+  echo "Staged upstream scope lost its 118-base review boundary" >&2
+  exit 1
+}
+[[ ${#staged_fork_scope[@]} -eq ${#fork_packages[@]} ]] || {
+  echo "Staged fork scope does not contain exactly the reviewed overlay" >&2
+  exit 1
+}
+diff -u <(printf '%s\n' "${upstream_packages[@]}") \
+  <(printf '%s\n' "${staged_upstream_scope[@]}")
+diff -u <(printf '%s\n' "${fork_packages[@]}") \
+  <(printf '%s\n' "${staged_fork_scope[@]}")
+
 edge_scope_output=$("$ROOT/bin/github-release-aarch64" scope --channel edge)
 rc_scope_output=$("$ROOT/bin/github-release-aarch64" scope --channel rc)
 stable_scope_output=$("$ROOT/bin/github-release-aarch64" scope --channel stable)
@@ -89,6 +117,17 @@ for settings_package in omarchy-settings omarchy-settings-dev; do
       echo "$settings_package no longer removes cups-files.conf from its package-owned /etc tree" >&2
       exit 1
     }
+  if grep -Eq "etc/systemd/zram-generator\.conf|etc/udev/rules\.d/99-omarchy-(power-profile|wifi-powersave)\.rules" \
+    <(sed -n '/^backup=(/,/^)/p' "$settings_recipe"); then
+    echo "$settings_package lists retired files in backup=()" >&2
+    exit 1
+  fi
+  grep -Fq \
+    'zram-generator: Reads the shipped /usr/lib/systemd/zram-generator.conf.d/90-omarchy.conf drop-in' \
+    "$settings_recipe" || {
+      echo "$settings_package documents the wrong packaged zram-generator path" >&2
+      exit 1
+    }
 done
 if "$ROOT/bin/github-release-aarch64" advance --from stable --to edge \
   >"$work/reverse-advance.out" 2>&1; then
@@ -102,8 +141,8 @@ if "$ROOT/bin/github-release-aarch64" seed --channel rc --no-baseline \
   exit 1
 fi
 grep -Fq 'zero-baseline validation applies only to edge' "$work/rc-full.out"
-[[ ${#fork_packages[@]} -eq 2 ]] || {
-  echo "Expected exactly 2 explicit fork package bases; found ${#fork_packages[@]}" >&2
+[[ ${#fork_packages[@]} -eq 3 ]] || {
+  echo "Expected exactly 3 explicit fork package bases; found ${#fork_packages[@]}" >&2
   exit 1
 }
 [[ $(printf '%s\n' "${packages[@]}" | sort -u | wc -l) -eq ${#packages[@]} ]] || {
@@ -114,7 +153,7 @@ grep -Fq 'zero-baseline validation applies only to edge' "$work/rc-full.out"
   echo "AArch64 fork package overlay contains duplicates" >&2
   exit 1
 }
-for required in omarchy-aarch64-keyring omarchy-spice-guest-tools libretro-blastem; do
+for required in omarchy-aarch64-keyring omarchy-aarch64-config omarchy-spice-guest-tools libretro-blastem; do
   printf '%s\n' "${packages[@]}" | grep -Fxq "$required" || {
     echo "AArch64 package scope lost required package base: $required" >&2
     exit 1
@@ -127,14 +166,14 @@ for package in "${fork_packages[@]}"; do
   fi
 done
 printf '%s\n' "${fork_packages[@]}" | sort -u | diff -u \
-  <(printf '%s\n' omarchy-aarch64-keyring omarchy-spice-guest-tools | sort -u) - || {
+  <(printf '%s\n' omarchy-aarch64-keyring omarchy-aarch64-config omarchy-spice-guest-tools | sort -u) - || {
   echo "Fork package overlay contains an unreviewed package base" >&2
   exit 1
 }
 
 # The checked-in manifest is an intentionally reviewed snapshot, but it must
 # not drift from the package/channel/architecture rules inherited from
-# upstream. The rolling adapter builds the same edge range as upstream; its two
+# upstream. The rolling adapter builds the same edge range as upstream; its three
 # fork packages participate through the same metadata rules as every upstream
 # package and are tracked separately above.
 expected_scope="$work/expected-edge-scope"
@@ -165,7 +204,7 @@ derived_upstream_scope="$work/derived-upstream-edge-scope"
 printf '%s\n' "${upstream_packages[@]}" | sort -u > "$configured_upstream_scope"
 comm -23 "$actual_scope" <(printf '%s\n' "${fork_packages[@]}" | sort -u) > "$derived_upstream_scope"
 if ! diff -u "$configured_upstream_scope" "$derived_upstream_scope"; then
-  echo "Shared AArch64 range drifted from the 116-base upstream edge scope" >&2
+  echo "Shared AArch64 range drifted from the reviewed upstream edge scope" >&2
   exit 1
 fi
 
