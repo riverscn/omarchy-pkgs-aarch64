@@ -1,6 +1,6 @@
 # Maintainer: Ryan Hughes <ryan@omarchy.org>
 pkgname='omarchy-settings-dev'
-pkgver=4.0.0.r1987.g4804286
+pkgver=4.0.0.r2015.g7a1ff01
 pkgrel=1
 _pkgver_base=4.0.0
 _pkgver_base_tag=v3.8.2
