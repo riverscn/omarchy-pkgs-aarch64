@@ -475,3 +475,21 @@ revalidated all 148 outputs and completed successfully in
 [run 33730887182](https://github.com/riverscn/omarchy-pkgs-aarch64/actions/runs/33730887182)
 without rebuilding packages or rewriting the rolling Release. All of these jobs
 ran on native GitHub ARM runners without QEMU.
+
+The final upstream-aligned refresh was published from commit `cd2b41b` later
+that day. Updating the standing `rc` branch first completed its incremental
+build, 149-output full audit, evidence upload, and atomic publication in
+[run 33748278469](https://github.com/riverscn/omarchy-pkgs-aarch64/actions/runs/33748278469).
+The subsequent `master` matrix completed edge, rc, and stable independently in
+[run 33748280581](https://github.com/riverscn/omarchy-pkgs-aarch64/actions/runs/33748280581),
+and its parallel repository self-tests passed in
+[run 33748280582](https://github.com/riverscn/omarchy-pkgs-aarch64/actions/runs/33748280582).
+
+Downloaded post-publication manifests report 122 package bases and 151 outputs
+for edge, and 120 bases and 149 outputs for both rc and stable. All three contain
+Strata 0.8.0-1 and the fast-ring T3 Code 0.0.38-1; only edge contains
+`omarchy-dev` and `omarchy-settings-dev`. Each downloaded `omarchy.db` verified
+against fingerprint `2A388EDA14046A9218EA5B39D34CA866CE325F2D`, and stable
+remains the only formal/latest Release. The refresh used the signed published
+baselines and rebuilt only changed packages; every final channel snapshot still
+passed the complete recursive audit. No job used QEMU or binfmt emulation.
