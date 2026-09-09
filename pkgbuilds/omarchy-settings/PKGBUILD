@@ -10,10 +10,10 @@
 #    provenance only (empty when cut from a bare commit). omarchy and
 #    omarchy-settings must always carry identical _tag/_commit/pkgver/sha256sums.
 pkgname='omarchy-settings'
-_tag='v4.0.2-aarch64.3'
-_commit='f38d909b38e4fc34d1853daf11039e2fbb96ead7'
-pkgver=4.0.2
-pkgrel=4
+_tag='v4.0.3-aarch64.1'
+_commit='d0f3651baae330938f373e40bb5169b23aef91a2'
+pkgver=4.0.3
+pkgrel=1
 pkgdesc='Omarchy user defaults, /etc/skel content, fonts, plymouth theme, and support helpers'
 arch=('any')
 url='https://github.com/riverscn/omarchy-aarch64'
@@ -108,7 +108,7 @@ if [[ -n "${OMARCHY_SRC:-}" ]]; then
   sha256sums=()
 else
   source=("omarchy::git+https://github.com/riverscn/omarchy-aarch64.git#commit=${_commit}")
-  sha256sums=('785ac96dd1de1543f3a6f24fde25fb51143a3c957d2bcb8cb1f3b27ac04ebdfb')
+  sha256sums=('75478e2aa2ead13c7132edc6e6ff328906dcfa1ef94eb48b52a8f64ccbcc0c5d')
 fi
 
 prepare() {
@@ -169,6 +169,7 @@ package() {
   # Thresholds live in etc/systemd/oomd.conf.d/10-omarchy.conf.
   install -Dm644 default/systemd/user/app.slice.d/10-oomd.conf "$pkgdir/usr/lib/systemd/user/app.slice.d/10-oomd.conf"
   install -Dm644 default/systemd/zram-generator.conf.d/90-omarchy.conf "$pkgdir/usr/lib/systemd/zram-generator.conf.d/90-omarchy.conf"
+  install -Dm644 default/systemd/system/plocate-updatedb.service.d/10-omarchy.conf "$pkgdir/usr/lib/systemd/system/plocate-updatedb.service.d/10-omarchy.conf"
 
   # Same for applications/** — used by omarchy-refresh-applications,
   # omarchy-install-gaming-*, etc. to copy .desktop files into ~/.local/share.
