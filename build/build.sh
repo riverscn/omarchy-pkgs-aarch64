@@ -165,6 +165,18 @@ EOF
     echo "  -> omarchy (priority 2): $FINAL_OUTPUT_DIR"
   fi
 
+  # The local build and published repositories must actually precede core/extra.
+  # Appending them alone lets an older distribution package shadow a freshly
+  # rebuilt dependency, even when the build dependency graph orders it first.
+  local ordered_config
+  ordered_config=$(mktemp) || return 1
+  if ! awk -f "$HELPERS_DIR/prioritize-build-repositories.awk" /etc/pacman.conf > "$ordered_config" ||
+     ! sudo install -m644 "$ordered_config" /etc/pacman.conf; then
+    rm -f "$ordered_config"
+    return 1
+  fi
+  rm -f "$ordered_config"
+
   # Sync pacman database
   if ! sudo pacman -Sy; then
     echo "==> ERROR: Cannot synchronize package databases"

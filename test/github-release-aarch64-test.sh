@@ -11,6 +11,20 @@ metadata_work="$work/metadata"
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$metadata_work"
 
+# Dependency producers must win over an older, ABI-incompatible distro build.
+printf '%s\n' '[options]' 'Architecture = auto' '[core]' 'Server = core' \
+  '[extra]' 'Server = extra' '[omarchy]' 'SigLevel = Required' \
+  'Server = published' '[omarchy-build]' 'SigLevel = Never' 'Server = local' \
+  > "$work/pacman.conf"
+awk -f "$ROOT/helpers/prioritize-build-repositories.awk" "$work/pacman.conf" \
+  > "$work/ordered.conf"
+diff -u <(printf '%s\n' '[options]' 'Architecture = auto' '[omarchy-build]' \
+  'SigLevel = Never' 'Server = local' '[omarchy]' 'SigLevel = Required' \
+  'Server = published' '[core]' 'Server = core' '[extra]' 'Server = extra') \
+  "$work/ordered.conf"
+diff -u "$work/ordered.conf" \
+  <(awk -f "$ROOT/helpers/prioritize-build-repositories.awk" "$work/ordered.conf")
+
 mapfile -t upstream_packages < <(sed -E '/^[[:space:]]*(#|$)/d' "$scope")
 mapfile -t fork_packages < <(sed -E '/^[[:space:]]*(#|$)/d' "$fork_scope")
 packages=("${upstream_packages[@]}" "${fork_packages[@]}")

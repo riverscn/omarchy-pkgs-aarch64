@@ -51,6 +51,12 @@ checksum. It uses the fast ring so each channel builds against its actual
 libraries. Remove this override after ALARM publishes a compatible newer
 package; no compositor configuration or source patch is introduced.
 
+The builder also now places `omarchy-build` and the published `omarchy`
+repository before the distribution repositories, matching its documented
+dependency priority. Otherwise an older package in `extra` shadows the rebuilt
+dependency. A fixture checks the exact order, preservation of signature policy,
+and idempotence.
+
 This records local preparation, not a published channel update. Publish the
 adapted source branch and immutable tag before building from the package pins.
 Use the existing native builder and signed repository audit, then advance the
