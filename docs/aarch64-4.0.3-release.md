@@ -42,6 +42,15 @@ source no longer installs that default through the former setup script.
 
 ## Publication sequence
 
+The first edge and RC CI runs exposed an Arch Linux ARM repository mismatch:
+`hyprland 0.56.1-3` requires `libaquamarine.so=13-64`, while the published
+`aquamarine 0.15.0-2` provides `libaquamarine.so=14-64`. Both runs stopped before
+publication. The fork overlay now includes a temporary native rebuild of the
+official `0.56.1-3` recipe as `0.56.1-3.1`, retaining its release archive and
+checksum. It uses the fast ring so each channel builds against its actual
+libraries. Remove this override after ALARM publishes a compatible newer
+package; no compositor configuration or source patch is introduced.
+
 This records local preparation, not a published channel update. Publish the
 adapted source branch and immutable tag before building from the package pins.
 Use the existing native builder and signed repository audit, then advance the

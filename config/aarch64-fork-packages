@@ -6,3 +6,7 @@
 omarchy-aarch64-keyring
 omarchy-aarch64-config
 omarchy-spice-guest-tools
+
+# Temporary official-version rebuild while ALARM's Hyprland requires the
+# retired Aquamarine SONAME 13. Drop after ALARM publishes a compatible update.
+hyprland

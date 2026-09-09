@@ -43,6 +43,7 @@ packages=(
   gtk2
   hermes-desktop
   heroic-games-launcher-bin
+  hyprland
   hyprland-preview-share-picker
   libretro-blastem
   libretro-desmume
