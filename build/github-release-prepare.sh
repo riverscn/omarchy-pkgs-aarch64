@@ -453,6 +453,10 @@ if [[ -n $remote_server ]]; then
   [[ $remote_server != *$'\n'* ]] || { echo "ERROR: invalid remote server" >&2; exit 1; }
   echo "Server = $remote_server" >> /etc/pacman.conf
 fi
+ordered_config=$(mktemp)
+awk -f /helpers/prioritize-build-repositories.awk /etc/pacman.conf > "$ordered_config"
+install -m644 "$ordered_config" /etc/pacman.conf
+rm -f "$ordered_config"
 pacman -Syy --noconfirm >/dev/null
 mapfile -t expected_sorted < <(printf '%s\n' "${!expected_names[@]}" | sort)
 for package_name in "${expected_sorted[@]}"; do

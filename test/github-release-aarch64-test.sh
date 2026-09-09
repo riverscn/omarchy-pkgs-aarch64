@@ -24,6 +24,12 @@ diff -u <(printf '%s\n' '[options]' 'Architecture = auto' '[omarchy-build]' \
   "$work/ordered.conf"
 diff -u "$work/ordered.conf" \
   <(awk -f "$ROOT/helpers/prioritize-build-repositories.awk" "$work/ordered.conf")
+for consumer in build/build.sh build/github-release-prepare.sh; do
+  grep -Fq 'prioritize-build-repositories.awk' "$ROOT/$consumer" || {
+    echo "Repository precedence is not applied by $consumer" >&2
+    exit 1
+  }
+done
 
 mapfile -t upstream_packages < <(sed -E '/^[[:space:]]*(#|$)/d' "$scope")
 mapfile -t fork_packages < <(sed -E '/^[[:space:]]*(#|$)/d' "$fork_scope")
